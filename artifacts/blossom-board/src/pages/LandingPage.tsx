@@ -15,14 +15,6 @@ const FEATURES = [
   { icon: '💾', title: 'Auto-Save', desc: 'Your board saves to localStorage every 10 seconds. Come back tomorrow — your work will still be there.', page: 'board' },
 ];
 
-const BLOSSOM_ITEMS = [
-  { emoji: '💡', label: 'Creative space to brainstorm freely', color: '#FFB7D5' },
-  { emoji: '🎨', label: 'A beautiful canvas that inspires', color: '#FFDDE9' },
-  { emoji: '📋', label: 'Task boards that actually feel fun', color: '#FFE4F0' },
-  { emoji: '👫', label: 'Collaboration that sparks joy', color: '#FFD0E8' },
-  { emoji: '✨', label: 'A cute space that makes you smile', color: '#FFE8F4' },
-  { emoji: '🌸', label: 'Tools as delightful as your ideas', color: '#FFDDE9' },
-];
 
 function AnimatedCounter({ target, suffix = '' }: { target: number | string; suffix?: string }) {
   const [count, setCount] = useState(0);
