@@ -405,7 +405,7 @@ export default function Canvas(_: { onExport: (c: HTMLCanvasElement) => void }) 
   return (
     <div
       ref={wrapRef}
-      style={{ flex:1, position:'relative', overflow:'hidden',
+      style={{ position:'absolute', inset: 0,
         background:'#FFF5F9',
         backgroundImage:'radial-gradient(circle, #F8BBD9 1.5px, transparent 1.5px)',
         backgroundSize:'24px 24px' }}
