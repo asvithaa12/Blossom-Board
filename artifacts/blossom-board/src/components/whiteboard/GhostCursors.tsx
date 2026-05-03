@@ -66,7 +66,7 @@ export default function GhostCursors({ containerWidth, containerHeight }: { cont
   }, [containerWidth, containerHeight]);
 
   return (
-    <>
+    <div className="ghost-cursors-layer" style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 8 }}>
       {cursors.map(c => (
         <div key={c.user.name} style={{ position: 'absolute', left: Math.round(c.x), top: Math.round(c.y), pointerEvents: 'none' }}>
           <GhostSVG color={c.user.color} />
@@ -82,6 +82,6 @@ export default function GhostCursors({ containerWidth, containerHeight }: { cont
           </div>
         </div>
       ))}
-    </>
+    </div>
   );
 }

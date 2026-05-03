@@ -65,13 +65,21 @@ export default function WhiteboardPage({ onNavigate }: Props) {
     showToast('Sticky note added!', '📌');
   }, [addElement]);
 
+  const captureBoard = async () => {
+    const html2canvas = (await import('html2canvas')).default;
+    const boardEl = document.querySelector('.board-canvas-area') as HTMLElement;
+    if (!boardEl) throw new Error('Board not found');
+    return html2canvas(boardEl, {
+      backgroundColor: '#FFF5F9',
+      scale: 1.5,
+      ignoreElements: (el) => el.classList.contains('ghost-cursors-layer') || el.classList.contains('cursor-glitter-layer'),
+    });
+  };
+
   const handleExport = useCallback(async () => {
     try {
-      const html2canvas = (await import('html2canvas')).default;
-      const boardEl = document.querySelector('.board-canvas-area') as HTMLElement;
-      if (!boardEl) return;
       showToast('Capturing board...', '📸');
-      const canvas = await html2canvas(boardEl, { backgroundColor: '#FFF5F9', scale: 1.5 });
+      const canvas = await captureBoard();
       const link = document.createElement('a');
       link.download = 'blossom-board.png';
       link.href = canvas.toDataURL('image/png');
@@ -84,11 +92,8 @@ export default function WhiteboardPage({ onNavigate }: Props) {
 
   const handleShare = useCallback(async () => {
     try {
-      const html2canvas = (await import('html2canvas')).default;
-      const boardEl = document.querySelector('.board-canvas-area') as HTMLElement;
-      if (!boardEl) return;
       showToast('Taking screenshot...', '📸');
-      const canvas = await html2canvas(boardEl, { backgroundColor: '#FFF5F9', scale: 1.5 });
+      const canvas = await captureBoard();
       canvas.toBlob(async (blob) => {
         if (!blob) return;
         if (navigator.share) {

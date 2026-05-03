@@ -8,7 +8,7 @@ const FEATURES = [
   { icon: '📌', title: 'Cute Sticky Notes', desc: 'Pop in pastel notes with emoji, auto-resize text, spring animations, and a folded-corner style. 6 adorable colours.', page: 'board' },
   { icon: '🔷', title: 'Shapes & Connectors', desc: 'Rectangle, ellipse, line, and arrow tools. Shift-lock to perfect squares and circles. Layer and group elements freely.', page: 'board' },
   { icon: '🔍', title: 'Zoom & Pan', desc: 'Mouse wheel zoom from 10% to 400%. Space-drag to pan. Fit-to-screen in one click. Canvas is infinite.', page: 'board' },
-  { icon: '👥', title: 'Collaborate with Friends', desc: 'Mock live cursors, participant avatars, typing indicators, and a real-time activity feed — all beautifully simulated.', page: 'board' },
+  { icon: '🌸', title: 'Meet Blossom — Your AI Guide', desc: 'Blossom is your built-in AI chatbot. Ask her anything about the whiteboard — tools, shortcuts, tips — and she\'ll guide you step by step.', page: 'board' },
   { icon: '📅', title: 'Notion-style Task Board', desc: 'Kanban, Calendar, and List views. Drag-and-drop cards. Priority badges, due dates, assignees, and filters.', page: 'tasks' },
   { icon: '↩️', title: 'Undo / Redo', desc: 'Full 50-step history stack. Ctrl+Z your mistakes away. Every action is tracked with a friendly toast notification.', page: 'board' },
   { icon: '🖼️', title: 'Export & Share', desc: 'Screenshot your board and share it with friends in one click. Pure client-side, no upload needed.', page: 'board' },
