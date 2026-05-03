@@ -57,38 +57,34 @@ function TypewriterCycler({ small = false }: { small?: boolean }) {
     return (
       <div style={{
         fontFamily: "'Comfortaa', cursive",
-        fontSize: '0.95rem',
+        fontSize: '1.25rem',
         fontWeight: 600,
         textAlign: 'center',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: '0.4rem',
+        gap: '0.5rem',
         flexWrap: 'wrap',
-        padding: '0.5rem 1rem',
-        background: 'rgba(255,255,255,0.7)',
-        border: '1.5px solid #F48FB1',
-        borderRadius: 50,
-        backdropFilter: 'blur(4px)',
-        boxShadow: '0 2px 12px rgba(233,30,140,0.1)',
-        maxWidth: 480,
-        margin: '0 auto',
       }}>
         <span style={{ color: '#c9607a', whiteSpace: 'nowrap' }}>Blossom your ideas with</span>
         <span style={{
           color: '#E91E8C',
           fontWeight: 700,
-          minWidth: 120,
+          minWidth: 140,
           display: 'inline-flex',
           alignItems: 'center',
+          textShadow: '0 0 18px rgba(233,30,140,0.55), 0 0 40px rgba(233,30,140,0.25)',
+          filter: 'drop-shadow(0 0 6px rgba(233,30,140,0.35))',
+          transition: 'text-shadow 0.2s',
         }}>
           {displayed}
           <span style={{
             opacity: cursorVisible ? 1 : 0,
             color: '#F48FB1',
             fontWeight: 300,
-            marginLeft: '1px',
+            marginLeft: '2px',
             transition: 'opacity 0.1s',
+            textShadow: '0 0 10px rgba(244,143,177,0.8)',
           }}>|</span>
         </span>
       </div>
@@ -228,20 +224,40 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
             background: '#E91E8C', color: 'white', padding: '0.85rem 2.2rem',
             borderRadius: 50, border: 'none', cursor: 'pointer',
             fontFamily: 'Nunito, sans-serif', fontWeight: 800, fontSize: '1rem',
-            transition: 'all 0.25s', boxShadow: '0 4px 20px rgba(233,30,140,0.35)',
+            transition: 'all 0.22s cubic-bezier(0.34,1.56,0.64,1)',
+            boxShadow: '0 4px 20px rgba(233,30,140,0.35)',
           }}
-            onMouseEnter={e => { (e.target as HTMLElement).style.transform = 'translateY(-2px)'; }}
-            onMouseLeave={e => { (e.target as HTMLElement).style.transform = 'translateY(0)'; }}>
+            onMouseEnter={e => {
+              const el = e.currentTarget;
+              el.style.transform = 'translateY(-3px) scale(1.06)';
+              el.style.boxShadow = '0 8px 32px rgba(233,30,140,0.6), 0 0 0 4px rgba(233,30,140,0.15)';
+            }}
+            onMouseLeave={e => {
+              const el = e.currentTarget;
+              el.style.transform = 'translateY(0) scale(1)';
+              el.style.boxShadow = '0 4px 20px rgba(233,30,140,0.35)';
+            }}>
             Open the Board ✏️
           </button>
           <button onClick={() => onNavigate('tasks')} style={{
             background: 'white', color: '#E91E8C', padding: '0.85rem 2.2rem',
             borderRadius: 50, border: '2px solid #E91E8C', cursor: 'pointer',
             fontFamily: 'Nunito, sans-serif', fontWeight: 800, fontSize: '1rem',
-            transition: 'all 0.25s',
+            transition: 'all 0.22s cubic-bezier(0.34,1.56,0.64,1)',
+            boxShadow: '0 2px 12px rgba(233,30,140,0.12)',
           }}
-            onMouseEnter={e => { const el = e.target as HTMLElement; el.style.background = '#FCE4EC'; el.style.transform = 'translateY(-2px)'; }}
-            onMouseLeave={e => { const el = e.target as HTMLElement; el.style.background = 'white'; el.style.transform = 'translateY(0)'; }}>
+            onMouseEnter={e => {
+              const el = e.currentTarget;
+              el.style.background = '#FCE4EC';
+              el.style.transform = 'translateY(-3px) scale(1.06)';
+              el.style.boxShadow = '0 8px 28px rgba(233,30,140,0.35), 0 0 0 4px rgba(233,30,140,0.12)';
+            }}
+            onMouseLeave={e => {
+              const el = e.currentTarget;
+              el.style.background = 'white';
+              el.style.transform = 'translateY(0) scale(1)';
+              el.style.boxShadow = '0 2px 12px rgba(233,30,140,0.12)';
+            }}>
             View Tasks 📋
           </button>
         </motion.div>
