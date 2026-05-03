@@ -1,6 +1,7 @@
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import { useTaskStore, Task, Column, Priority } from '../store/taskStore';
 import { motion, AnimatePresence } from 'framer-motion';
+import KawaiiAvatar from '../components/KawaiiAvatar';
 
 const COL_META: Record<Column, { label: string; color: string; dotColor: string; emoji: string }> = {
   backlog: { label: 'Backlog', color: '#F3E5F5', dotColor: '#9C27B0', emoji: '📋' },
@@ -16,11 +17,19 @@ const PRIORITY_META: Record<Priority, { label: string; bg: string; color: string
 };
 
 const COLS: Column[] = ['backlog', 'inprogress', 'review', 'done'];
-
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+const ASSIGNEE_NAMES: Record<string, string> = {
+  AL: 'Alice L.',
+  BJ: 'Bob J.',
+  MK: 'Maya K.',
+  SR: 'Sam R.',
+};
 
 function TaskCard({ task }: { task: Task }) {
   const [dragging, setDragging] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const deleteTask = useTaskStore(s => s.deleteTask);
   const pm = PRIORITY_META[task.priority];
 
   return (
@@ -32,24 +41,48 @@ function TaskCard({ task }: { task: Task }) {
       draggable
       onDragStart={e => { setDragging(true); e.dataTransfer.setData('taskId', task.id); }}
       onDragEnd={() => setDragging(false)}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{
         background: '#FFF0F5', border: '1.5px solid #FCE4EC', borderRadius: 14,
         padding: '0.9rem', cursor: 'grab', opacity: dragging ? 0.5 : 1,
+        position: 'relative',
         transition: 'transform 0.2s, box-shadow 0.2s',
         boxShadow: dragging ? '0 8px 24px rgba(233,30,140,0.2)' : undefined,
       }}
       whileHover={{ y: -2, boxShadow: '0 4px 16px rgba(233,30,140,0.12)', borderColor: '#F48FB1' }}
     >
-      <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#3D1A2E', marginBottom: '0.5rem', lineHeight: 1.3 }}>{task.title}</div>
+      {/* Delete button */}
+      <AnimatePresence>
+        {hovered && (
+          <motion.button
+            initial={{ opacity: 0, scale: 0.7 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.7 }}
+            onClick={e => { e.stopPropagation(); deleteTask(task.id); }}
+            style={{
+              position: 'absolute', top: 8, right: 8,
+              width: 22, height: 22, borderRadius: '50%',
+              background: '#FFE0EC', border: '1.5px solid #F48FB1',
+              color: '#C2185B', fontSize: '0.75rem', fontWeight: 900,
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              lineHeight: 1, zIndex: 2,
+            }}
+            title="Delete task"
+          >
+            ×
+          </motion.button>
+        )}
+      </AnimatePresence>
+
+      <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#3D1A2E', marginBottom: '0.5rem', lineHeight: 1.3, paddingRight: hovered ? 24 : 0 }}>{task.title}</div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.5rem' }}>
         <div style={{ fontSize: '0.7rem', fontWeight: 700, padding: '0.2rem 0.5rem', borderRadius: 50, background: pm.bg, color: pm.color }}>
           {pm.emoji} {pm.label}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           {task.dueDate && <span style={{ fontSize: '0.68rem', color: '#AD6590', fontWeight: 600 }}>📅 {task.dueDate}</span>}
-          <div style={{ width: 22, height: 22, borderRadius: '50%', background: task.assigneeColor, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.58rem', fontWeight: 800, color: 'white' }}>
-            {task.assignee}
-          </div>
+          <KawaiiAvatar initials={task.assignee} name={ASSIGNEE_NAMES[task.assignee]} size={26} />
         </div>
       </div>
     </motion.div>
@@ -96,11 +129,18 @@ function KanbanView({ tasks }: { tasks: Task[] }) {
   );
 }
 
+interface CalendarNote {
+  text: string;
+}
+
 function CalendarView({ tasks }: { tasks: Task[] }) {
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [notes, setNotes] = useState<Record<string, CalendarNote>>({});
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [draftText, setDraftText] = useState('');
+
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
-
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const today = new Date();
@@ -108,10 +148,30 @@ function CalendarView({ tasks }: { tasks: Task[] }) {
   const cells: Array<number | null> = [...Array(firstDay).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)];
   while (cells.length % 7 !== 0) cells.push(null);
 
-  const getTasksForDay = (day: number) => {
-    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    return tasks.filter(t => t.dueDate === dateStr);
+  const dateStr = (day: number) =>
+    `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+  const getTasksForDay = (day: number) => tasks.filter(t => t.dueDate === dateStr(day));
+
+  const openDay = (day: number) => {
+    const ds = dateStr(day);
+    setSelectedDay(ds);
+    setDraftText(notes[ds]?.text || '');
   };
+
+  const saveNote = () => {
+    if (!selectedDay) return;
+    if (draftText.trim()) {
+      setNotes(n => ({ ...n, [selectedDay]: { text: draftText.trim() } }));
+    } else {
+      setNotes(n => { const copy = { ...n }; delete copy[selectedDay]; return copy; });
+    }
+    setSelectedDay(null);
+  };
+
+  const selectedDateLabel = selectedDay
+    ? new Date(selectedDay + 'T00:00:00').toLocaleDateString('default', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+    : '';
 
   return (
     <div style={{ padding: '1.5rem', maxWidth: 900, margin: '0 auto' }}>
@@ -132,28 +192,90 @@ function CalendarView({ tasks }: { tasks: Task[] }) {
         {cells.map((day, i) => {
           const isToday = day !== null && today.getDate() === day && today.getMonth() === month && today.getFullYear() === year;
           const dayTasks = day ? getTasksForDay(day) : [];
+          const ds = day ? dateStr(day) : '';
+          const hasNote = ds && notes[ds]?.text;
           return (
-            <div key={i} style={{
-              background: day ? 'white' : 'transparent', borderRadius: 12,
-              border: day ? `1.5px solid ${isToday ? '#E91E8C' : '#FCE4EC'}` : 'none',
-              minHeight: 90, padding: '0.4rem 0.5rem',
-            }}>
-              {day && <div style={{ fontSize: '0.8rem', fontWeight: isToday ? 800 : 700, color: isToday ? '#E91E8C' : '#7B3F6E', marginBottom: '0.25rem' }}>{day}</div>}
-              {dayTasks.slice(0, 3).map(t => (
-                <div key={t.id} style={{ background: PRIORITY_META[t.priority].bg, color: PRIORITY_META[t.priority].color, borderRadius: 50, padding: '0.1rem 0.4rem', fontSize: '0.62rem', fontWeight: 700, marginBottom: '0.15rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer' }}>
-                  {t.title}
-                </div>
-              ))}
-              {dayTasks.length > 3 && <div style={{ fontSize: '0.6rem', color: '#AD6590', fontWeight: 700 }}>+{dayTasks.length - 3}</div>}
+            <div key={i}
+              onClick={() => day && openDay(day)}
+              style={{
+                background: day ? 'white' : 'transparent', borderRadius: 12,
+                border: day ? `1.5px solid ${isToday ? '#E91E8C' : '#FCE4EC'}` : 'none',
+                minHeight: 90, padding: '0.4rem 0.5rem',
+                cursor: day ? 'pointer' : 'default',
+                transition: 'background 0.15s, box-shadow 0.15s',
+                boxShadow: isToday ? '0 0 0 2px #E91E8C33' : undefined,
+              }}
+              onMouseEnter={e => { if (day) (e.currentTarget as HTMLElement).style.background = '#FFF0F5'; }}
+              onMouseLeave={e => { if (day) (e.currentTarget as HTMLElement).style.background = 'white'; }}
+            >
+              {day && (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.2rem' }}>
+                    <div style={{ fontSize: '0.8rem', fontWeight: isToday ? 800 : 700, color: isToday ? '#E91E8C' : '#7B3F6E' }}>{day}</div>
+                    {hasNote && <div style={{ fontSize: '0.6rem' }} title={notes[ds]!.text}>📝</div>}
+                  </div>
+                  {dayTasks.slice(0, 2).map(t => (
+                    <div key={t.id} style={{ background: PRIORITY_META[t.priority].bg, color: PRIORITY_META[t.priority].color, borderRadius: 50, padding: '0.1rem 0.4rem', fontSize: '0.62rem', fontWeight: 700, marginBottom: '0.15rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {t.title}
+                    </div>
+                  ))}
+                  {dayTasks.length > 2 && <div style={{ fontSize: '0.6rem', color: '#AD6590', fontWeight: 700 }}>+{dayTasks.length - 2}</div>}
+                  {hasNote && (
+                    <div style={{ fontSize: '0.6rem', color: '#AD6590', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.3, marginTop: '0.1rem' }}>
+                      {notes[ds]!.text}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           );
         })}
       </div>
+
+      {/* Day note modal */}
+      <AnimatePresence>
+        {selectedDay && (
+          <div
+            style={{ position: 'fixed', inset: 0, background: 'rgba(61,26,46,0.4)', zIndex: 4000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
+            onClick={() => setSelectedDay(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.85, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.85, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+              onClick={e => e.stopPropagation()}
+              style={{ background: 'white', borderRadius: 24, padding: '1.6rem', width: '100%', maxWidth: 420, boxShadow: '0 20px 60px rgba(233,30,140,0.25)' }}
+            >
+              <div style={{ fontSize: '1.1rem', fontWeight: 900, color: '#E91E8C', marginBottom: '0.25rem' }}>📝 {selectedDateLabel}</div>
+              <div style={{ fontSize: '0.78rem', color: '#AD6590', marginBottom: '1rem' }}>Write anything — a note, reminder, idea…</div>
+              <textarea
+                autoFocus
+                value={draftText}
+                onChange={e => setDraftText(e.target.value)}
+                placeholder="What's on your mind for this day? 🌸"
+                rows={5}
+                style={{
+                  width: '100%', padding: '0.7rem 0.9rem', border: '1.5px solid #F48FB1',
+                  borderRadius: 14, fontFamily: 'Nunito, sans-serif', fontSize: '0.9rem',
+                  color: '#3D1A2E', background: '#FFF0F5', outline: 'none', resize: 'vertical',
+                  lineHeight: 1.6, boxSizing: 'border-box',
+                }}
+              />
+              <div style={{ display: 'flex', gap: '0.7rem', marginTop: '1rem' }}>
+                <button onClick={() => setSelectedDay(null)} style={{ flex: 1, padding: '0.65rem', borderRadius: 12, border: '2px solid #FCE4EC', background: 'white', cursor: 'pointer', fontFamily: 'Nunito, sans-serif', fontWeight: 700, color: '#7B3F6E' }}>Cancel</button>
+                <button onClick={saveNote} style={{ flex: 1, padding: '0.65rem', borderRadius: 12, border: 'none', background: '#E91E8C', color: 'white', cursor: 'pointer', fontFamily: 'Nunito, sans-serif', fontWeight: 800 }}>Save Note ♡</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
 
 function ListView({ tasks }: { tasks: Task[] }) {
+  const deleteTask = useTaskStore(s => s.deleteTask);
   const [sortBy, setSortBy] = useState<'title' | 'priority' | 'dueDate' | 'assignee'>('priority');
   const [sortDir, setSortDir] = useState<1 | -1>(1);
 
@@ -169,7 +291,7 @@ function ListView({ tasks }: { tasks: Task[] }) {
   };
 
   return (
-    <div style={{ padding: '1.5rem', maxWidth: 900, margin: '0 auto' }}>
+    <div style={{ padding: '1.5rem', maxWidth: 960, margin: '0 auto' }}>
       <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 0.4rem' }}>
         <thead>
           <tr>
@@ -178,35 +300,68 @@ function ListView({ tasks }: { tasks: Task[] }) {
                 {label} {sortBy === key ? (sortDir === 1 ? '↑' : '↓') : ''}
               </th>
             ))}
+            <th style={{ width: 48 }} />
           </tr>
         </thead>
         <tbody>
-          {sorted.map(t => {
-            const pm = PRIORITY_META[t.priority];
-            const cm = COL_META[t.column];
-            return (
-              <tr key={t.id} style={{ background: 'white', borderRadius: 12, cursor: 'pointer' }}
-                onMouseEnter={e => (e.currentTarget as HTMLElement).style.boxShadow = '0 4px 24px rgba(233,30,140,0.12)'}
-                onMouseLeave={e => (e.currentTarget as HTMLElement).style.boxShadow = 'none'}>
-                <td style={{ padding: '0.8rem 1rem', fontSize: '0.85rem', fontWeight: 600, color: '#3D1A2E', borderTop: '1.5px solid #FCE4EC', borderBottom: '1.5px solid #FCE4EC', borderLeft: '1.5px solid #FCE4EC', borderRadius: '12px 0 0 12px' }}>{t.title}</td>
-                <td style={{ padding: '0.8rem 1rem', borderTop: '1.5px solid #FCE4EC', borderBottom: '1.5px solid #FCE4EC' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <div style={{ width: 22, height: 22, borderRadius: '50%', background: t.assigneeColor, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.58rem', fontWeight: 800, color: 'white' }}>{t.assignee}</div>
-                    <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#7B3F6E' }}>{t.assignee}</span>
-                  </div>
-                </td>
-                <td style={{ padding: '0.8rem 1rem', borderTop: '1.5px solid #FCE4EC', borderBottom: '1.5px solid #FCE4EC' }}>
-                  <span style={{ fontSize: '0.75rem', fontWeight: 700, padding: '0.2rem 0.6rem', borderRadius: 50, background: cm.color + '22', color: cm.dotColor }}>{cm.emoji} {cm.label}</span>
-                </td>
-                <td style={{ padding: '0.8rem 1rem', borderTop: '1.5px solid #FCE4EC', borderBottom: '1.5px solid #FCE4EC' }}>
-                  <span style={{ fontSize: '0.75rem', fontWeight: 700, padding: '0.2rem 0.6rem', borderRadius: 50, background: pm.bg, color: pm.color }}>{pm.emoji} {pm.label}</span>
-                </td>
-                <td style={{ padding: '0.8rem 1rem', fontSize: '0.8rem', fontWeight: 600, color: '#AD6590', borderTop: '1.5px solid #FCE4EC', borderBottom: '1.5px solid #FCE4EC', borderRight: '1.5px solid #FCE4EC', borderRadius: '0 12px 12px 0' }}>{t.dueDate || '—'}</td>
-              </tr>
-            );
-          })}
+          <AnimatePresence>
+            {sorted.map(t => {
+              const pm = PRIORITY_META[t.priority];
+              const cm = COL_META[t.column];
+              return (
+                <motion.tr
+                  key={t.id}
+                  layout
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 10 }}
+                  style={{ background: 'white', borderRadius: 12, cursor: 'default' }}
+                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.boxShadow = '0 4px 24px rgba(233,30,140,0.12)'}
+                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.boxShadow = 'none'}
+                >
+                  <td style={{ padding: '0.8rem 1rem', fontSize: '0.85rem', fontWeight: 600, color: '#3D1A2E', borderTop: '1.5px solid #FCE4EC', borderBottom: '1.5px solid #FCE4EC', borderLeft: '1.5px solid #FCE4EC', borderRadius: '12px 0 0 12px' }}>{t.title}</td>
+                  <td style={{ padding: '0.8rem 1rem', borderTop: '1.5px solid #FCE4EC', borderBottom: '1.5px solid #FCE4EC' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <KawaiiAvatar initials={t.assignee} name={ASSIGNEE_NAMES[t.assignee]} size={28} />
+                      <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#7B3F6E' }}>{ASSIGNEE_NAMES[t.assignee] || t.assignee}</span>
+                    </div>
+                  </td>
+                  <td style={{ padding: '0.8rem 1rem', borderTop: '1.5px solid #FCE4EC', borderBottom: '1.5px solid #FCE4EC' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 700, padding: '0.2rem 0.6rem', borderRadius: 50, background: cm.color + '22', color: cm.dotColor }}>{cm.emoji} {cm.label}</span>
+                  </td>
+                  <td style={{ padding: '0.8rem 1rem', borderTop: '1.5px solid #FCE4EC', borderBottom: '1.5px solid #FCE4EC' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 700, padding: '0.2rem 0.6rem', borderRadius: 50, background: pm.bg, color: pm.color }}>{pm.emoji} {pm.label}</span>
+                  </td>
+                  <td style={{ padding: '0.8rem 1rem', fontSize: '0.8rem', fontWeight: 600, color: '#AD6590', borderTop: '1.5px solid #FCE4EC', borderBottom: '1.5px solid #FCE4EC' }}>{t.dueDate || '—'}</td>
+                  <td style={{ padding: '0.4rem 0.6rem', borderTop: '1.5px solid #FCE4EC', borderBottom: '1.5px solid #FCE4EC', borderRight: '1.5px solid #FCE4EC', borderRadius: '0 12px 12px 0' }}>
+                    <button
+                      onClick={() => deleteTask(t.id)}
+                      title="Delete task"
+                      style={{
+                        width: 28, height: 28, borderRadius: '50%',
+                        background: '#FFF0F5', border: '1.5px solid #F48FB1',
+                        color: '#C2185B', fontSize: '0.85rem', fontWeight: 900,
+                        cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        transition: 'background 0.15s',
+                      }}
+                      onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#FFDDE9'}
+                      onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = '#FFF0F5'}
+                    >
+                      ×
+                    </button>
+                  </td>
+                </motion.tr>
+              );
+            })}
+          </AnimatePresence>
         </tbody>
       </table>
+      {sorted.length === 0 && (
+        <div style={{ textAlign: 'center', padding: '3rem', color: '#AD6590', fontSize: '0.9rem' }}>
+          <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🌸</div>
+          No tasks found.
+        </div>
+      )}
     </div>
   );
 }
@@ -279,66 +434,75 @@ export default function TasksPage() {
       {view === 'list' && <ListView tasks={filtered} />}
 
       {/* Add Task Modal */}
-      {showModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(61,26,46,0.45)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
-          onClick={() => setShowModal(false)}>
-          <motion.div initial={{ scale: 0.85, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring', stiffness: 300, damping: 25 }}
-            onClick={e => e.stopPropagation()}
-            style={{ background: 'white', borderRadius: 24, padding: '1.8rem', width: '100%', maxWidth: 480, boxShadow: '0 20px 60px rgba(233,30,140,0.25)' }}>
-            <h3 style={{ fontSize: '1.2rem', fontWeight: 900, color: '#3D1A2E', marginBottom: '1.2rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>📌 Add New Task</h3>
+      <AnimatePresence>
+        {showModal && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(61,26,46,0.45)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
+            onClick={() => setShowModal(false)}>
+            <motion.div initial={{ scale: 0.85, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.85, opacity: 0 }} transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+              onClick={e => e.stopPropagation()}
+              style={{ background: 'white', borderRadius: 24, padding: '1.8rem', width: '100%', maxWidth: 480, boxShadow: '0 20px 60px rgba(233,30,140,0.25)' }}>
+              <h3 style={{ fontSize: '1.2rem', fontWeight: 900, color: '#3D1A2E', marginBottom: '1.2rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>📌 Add New Task</h3>
 
-            <div style={{ marginBottom: '1rem' }}>
-              <label style={{ fontSize: '0.8rem', fontWeight: 800, color: '#7B3F6E', marginBottom: '0.35rem', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Task Title</label>
-              <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="What needs to be done?"
-                style={{ width: '100%', padding: '0.6rem 0.9rem', border: '1.5px solid #F48FB1', borderRadius: 12, fontFamily: 'Nunito, sans-serif', fontSize: '0.9rem', color: '#3D1A2E', background: '#FFF0F5', outline: 'none' }} />
-            </div>
+              <div style={{ marginBottom: '1rem' }}>
+                <label style={{ fontSize: '0.8rem', fontWeight: 800, color: '#7B3F6E', marginBottom: '0.35rem', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Task Title</label>
+                <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="What needs to be done?"
+                  onKeyDown={e => e.key === 'Enter' && submit()}
+                  style={{ width: '100%', padding: '0.6rem 0.9rem', border: '1.5px solid #F48FB1', borderRadius: 12, fontFamily: 'Nunito, sans-serif', fontSize: '0.9rem', color: '#3D1A2E', background: '#FFF0F5', outline: 'none', boxSizing: 'border-box' }} />
+              </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.8rem', marginBottom: '1rem' }}>
-              <div>
-                <label style={{ fontSize: '0.8rem', fontWeight: 800, color: '#7B3F6E', marginBottom: '0.35rem', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Priority</label>
-                <select value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value as Priority }))}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.8rem', marginBottom: '1rem' }}>
+                <div>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 800, color: '#7B3F6E', marginBottom: '0.35rem', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Priority</label>
+                  <select value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value as Priority }))}
+                    style={{ width: '100%', padding: '0.6rem 0.9rem', border: '1.5px solid #F48FB1', borderRadius: 12, fontFamily: 'Nunito, sans-serif', fontSize: '0.9rem', color: '#3D1A2E', background: '#FFF0F5', outline: 'none', cursor: 'pointer' }}>
+                    <option value="high">🌹 High</option>
+                    <option value="med">🌺 Medium</option>
+                    <option value="low">🌸 Low</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 800, color: '#7B3F6E', marginBottom: '0.35rem', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Assignee</label>
+                  <select value={form.assignee} onChange={e => setForm(f => ({ ...f, assignee: e.target.value }))}
+                    style={{ width: '100%', padding: '0.6rem 0.9rem', border: '1.5px solid #F48FB1', borderRadius: 12, fontFamily: 'Nunito, sans-serif', fontSize: '0.9rem', color: '#3D1A2E', background: '#FFF0F5', outline: 'none', cursor: 'pointer' }}>
+                    <option value="AL">Alice L.</option>
+                    <option value="BJ">Bob J.</option>
+                    <option value="MK">Maya K.</option>
+                    <option value="SR">Sam R.</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '1rem' }}>
+                <label style={{ fontSize: '0.8rem', fontWeight: 800, color: '#7B3F6E', marginBottom: '0.35rem', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Due Date</label>
+                <input type="date" value={form.dueDate} onChange={e => setForm(f => ({ ...f, dueDate: e.target.value }))}
+                  style={{ width: '100%', padding: '0.6rem 0.9rem', border: '1.5px solid #F48FB1', borderRadius: 12, fontFamily: 'Nunito, sans-serif', fontSize: '0.9rem', color: '#3D1A2E', background: '#FFF0F5', outline: 'none' }} />
+              </div>
+
+              <div style={{ marginBottom: '1rem' }}>
+                <label style={{ fontSize: '0.8rem', fontWeight: 800, color: '#7B3F6E', marginBottom: '0.35rem', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Column</label>
+                <select value={form.column} onChange={e => setForm(f => ({ ...f, column: e.target.value as Column }))}
                   style={{ width: '100%', padding: '0.6rem 0.9rem', border: '1.5px solid #F48FB1', borderRadius: 12, fontFamily: 'Nunito, sans-serif', fontSize: '0.9rem', color: '#3D1A2E', background: '#FFF0F5', outline: 'none', cursor: 'pointer' }}>
-                  <option value="high">🌹 High</option>
-                  <option value="med">🌺 Medium</option>
-                  <option value="low">🌸 Low</option>
+                  <option value="backlog">📋 Backlog</option>
+                  <option value="inprogress">⚡ In Progress</option>
+                  <option value="review">🔍 Review</option>
+                  <option value="done">✅ Done</option>
                 </select>
               </div>
-              <div>
-                <label style={{ fontSize: '0.8rem', fontWeight: 800, color: '#7B3F6E', marginBottom: '0.35rem', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Assignee</label>
-                <select value={form.assignee} onChange={e => setForm(f => ({ ...f, assignee: e.target.value }))}
-                  style={{ width: '100%', padding: '0.6rem 0.9rem', border: '1.5px solid #F48FB1', borderRadius: 12, fontFamily: 'Nunito, sans-serif', fontSize: '0.9rem', color: '#3D1A2E', background: '#FFF0F5', outline: 'none', cursor: 'pointer' }}>
-                  <option value="AL">Alice L.</option>
-                  <option value="BJ">Bob J.</option>
-                  <option value="MK">Maya K.</option>
-                  <option value="SR">Sam R.</option>
-                </select>
+
+              {/* Assignee preview */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', background: '#FFF0F5', padding: '0.6rem 0.9rem', borderRadius: 12, marginBottom: '1rem' }}>
+                <KawaiiAvatar initials={form.assignee} name={ASSIGNEE_NAMES[form.assignee]} size={36} />
+                <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#7B3F6E' }}>Assigned to <strong style={{ color: '#E91E8C' }}>{ASSIGNEE_NAMES[form.assignee]}</strong></span>
               </div>
-            </div>
 
-            <div style={{ marginBottom: '1rem' }}>
-              <label style={{ fontSize: '0.8rem', fontWeight: 800, color: '#7B3F6E', marginBottom: '0.35rem', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Due Date</label>
-              <input type="date" value={form.dueDate} onChange={e => setForm(f => ({ ...f, dueDate: e.target.value }))}
-                style={{ width: '100%', padding: '0.6rem 0.9rem', border: '1.5px solid #F48FB1', borderRadius: 12, fontFamily: 'Nunito, sans-serif', fontSize: '0.9rem', color: '#3D1A2E', background: '#FFF0F5', outline: 'none' }} />
-            </div>
-
-            <div style={{ marginBottom: '1rem' }}>
-              <label style={{ fontSize: '0.8rem', fontWeight: 800, color: '#7B3F6E', marginBottom: '0.35rem', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Column</label>
-              <select value={form.column} onChange={e => setForm(f => ({ ...f, column: e.target.value as Column }))}
-                style={{ width: '100%', padding: '0.6rem 0.9rem', border: '1.5px solid #F48FB1', borderRadius: 12, fontFamily: 'Nunito, sans-serif', fontSize: '0.9rem', color: '#3D1A2E', background: '#FFF0F5', outline: 'none', cursor: 'pointer' }}>
-                <option value="backlog">📋 Backlog</option>
-                <option value="inprogress">⚡ In Progress</option>
-                <option value="review">🔍 Review</option>
-                <option value="done">✅ Done</option>
-              </select>
-            </div>
-
-            <div style={{ display: 'flex', gap: '0.7rem', marginTop: '1.2rem' }}>
-              <button onClick={() => setShowModal(false)} style={{ flex: 1, padding: '0.7rem', borderRadius: 12, border: '2px solid #FCE4EC', background: 'white', cursor: 'pointer', fontFamily: 'Nunito, sans-serif', fontWeight: 700, color: '#7B3F6E', transition: 'all 0.2s' }}>Cancel</button>
-              <button onClick={submit} style={{ flex: 1, padding: '0.7rem', borderRadius: 12, border: 'none', background: '#E91E8C', color: 'white', cursor: 'pointer', fontFamily: 'Nunito, sans-serif', fontWeight: 800, transition: 'all 0.2s' }}>Add Task ♡</button>
-            </div>
-          </motion.div>
-        </div>
-      )}
+              <div style={{ display: 'flex', gap: '0.7rem', marginTop: '0.5rem' }}>
+                <button onClick={() => setShowModal(false)} style={{ flex: 1, padding: '0.7rem', borderRadius: 12, border: '2px solid #FCE4EC', background: 'white', cursor: 'pointer', fontFamily: 'Nunito, sans-serif', fontWeight: 700, color: '#7B3F6E', transition: 'all 0.2s' }}>Cancel</button>
+                <button onClick={submit} style={{ flex: 1, padding: '0.7rem', borderRadius: 12, border: 'none', background: '#E91E8C', color: 'white', cursor: 'pointer', fontFamily: 'Nunito, sans-serif', fontWeight: 800, transition: 'all 0.2s' }}>Add Task ♡</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
