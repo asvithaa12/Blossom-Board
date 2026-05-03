@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useRef } from 'react';
 import { useBoardStore } from '../store/boardStore';
+import { useTheme } from '../context/ThemeContext';
 import Toolbar from '../components/whiteboard/Toolbar';
 import Canvas from '../components/whiteboard/Canvas';
 import ActivityFeed from '../components/whiteboard/ActivityFeed';
@@ -7,33 +8,27 @@ import { showToast } from '../components/Toast';
 
 interface Props { onNavigate: (page: string) => void; }
 
-export default function WhiteboardPage({ onNavigate }: Props) {
-  const { setTool, tool, undo, redo, copySelected, paste, duplicateSelected, deleteSelected, addElement, elements, viewport, setViewport, selectedIds } = useBoardStore();
+export default function WhiteboardPage({ onNavigate: _onNavigate }: Props) {
+  const { theme } = useTheme();
+  const { setTool, tool: _tool, undo, redo, copySelected, paste, duplicateSelected, deleteSelected, addElement, elements, viewport, setViewport, selectedIds } = useBoardStore();
   const elementsRef = useRef(elements);
   elementsRef.current = elements;
 
-  // Load from localStorage once on mount — use setState directly to avoid duplicate keys
   useEffect(() => {
     try {
       const saved = localStorage.getItem('blossom-board-state');
       if (saved) {
         const els = JSON.parse(saved);
         if (Array.isArray(els) && els.length > 0) {
-          // Deduplicate by id before restoring
           const seen = new Set<string>();
-          const unique = els.filter((el: any) => {
-            if (seen.has(el.id)) return false;
-            seen.add(el.id);
-            return true;
-          });
+          const unique = els.filter((el: any) => { if (seen.has(el.id)) return false; seen.add(el.id); return true; });
           useBoardStore.setState({ elements: unique, history: [unique], historyIndex: 0 });
-          showToast('Board restored from last session 🌸', '🌸');
+          showToast(theme.kawaii ? 'Board restored from last session 🌸' : 'Board restored', theme.kawaii ? '🌸' : '✓');
         }
       }
     } catch {}
   }, []);
 
-  // Auto-save ONLY when leaving the board page (cleanup)
   useEffect(() => {
     return () => {
       try {
@@ -52,15 +47,10 @@ export default function WhiteboardPage({ onNavigate }: Props) {
       type: 'sticky',
       x: (200 - state.viewport.x) / state.viewport.scale + Math.random() * 200,
       y: (200 - state.viewport.y) / state.viewport.scale + Math.random() * 100,
-      w: 180, h: 140,
-      rotation: 0,
+      w: 180, h: 140, rotation: 0,
       zIndex: state.elements.length + 50,
-      strokeColor: '#3D1A2E',
-      fillColor: col,
-      strokeWidth: 1,
-      stickyColor: col,
-      content: '',
-      emoji: '📌',
+      strokeColor: '#3D1A2E', fillColor: col, strokeWidth: 1,
+      stickyColor: col, content: '', emoji: '📌',
     });
     showToast('Sticky note added!', '📌');
   }, [addElement]);
@@ -70,8 +60,7 @@ export default function WhiteboardPage({ onNavigate }: Props) {
     const boardEl = document.querySelector('.board-canvas-area') as HTMLElement;
     if (!boardEl) throw new Error('Board not found');
     return html2canvas(boardEl, {
-      backgroundColor: '#FFF5F9',
-      scale: 1.5,
+      backgroundColor: '#FFF5F9', scale: 1.5,
       ignoreElements: (el) => el.classList.contains('ghost-cursors-layer') || el.classList.contains('cursor-glitter-layer'),
     });
   };
@@ -85,9 +74,7 @@ export default function WhiteboardPage({ onNavigate }: Props) {
       link.href = canvas.toDataURL('image/png');
       link.click();
       showToast('Exported as PNG!', '💾');
-    } catch {
-      showToast('Export failed', '❌', 'error');
-    }
+    } catch { showToast('Export failed', '❌', 'error'); }
   }, []);
 
   const handleShare = useCallback(async () => {
@@ -99,13 +86,12 @@ export default function WhiteboardPage({ onNavigate }: Props) {
         if (navigator.share) {
           try {
             await navigator.share({ title: 'My Blossom Board 🌸', text: 'Check out my board!', files: [new File([blob], 'blossom-board.png', { type: 'image/png' })] });
-            showToast('Shared!', '🌸');
-            return;
+            showToast('Shared!', '🌸'); return;
           } catch {}
         }
         try {
           await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-          showToast('Copied to clipboard — paste to share! 🌸', '📋');
+          showToast('Copied to clipboard — paste to share!', '📋');
         } catch {
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
@@ -114,18 +100,14 @@ export default function WhiteboardPage({ onNavigate }: Props) {
           showToast('Screenshot saved!', '📤');
         }
       });
-    } catch {
-      showToast('Share failed', '❌', 'error');
-    }
+    } catch { showToast('Share failed', '❌', 'error'); }
   }, []);
 
-  // Keyboard shortcuts
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement).tagName.toLowerCase();
       if (['input', 'textarea', 'select'].includes(tag)) return;
       const ctrl = e.ctrlKey || e.metaKey;
-
       if (!ctrl) {
         const toolMap: Record<string, string> = { v: 'select', p: 'pen', b: 'pen', e: 'eraser', r: 'rect', o: 'ellipse', l: 'line', a: 'arrow', t: 'text', h: 'pan' };
         if (e.key.toLowerCase() === 's') { e.preventDefault(); addSticky(); return; }
@@ -134,7 +116,6 @@ export default function WhiteboardPage({ onNavigate }: Props) {
         if (e.key === 'Delete' || e.key === 'Backspace') { if (selectedIds.length) { deleteSelected(); showToast('Deleted', '🗑️'); } return; }
         if (e.key === 'Escape') { useBoardStore.getState().selectIds([]); return; }
       }
-
       if (ctrl) {
         if (e.key === 'z') { e.preventDefault(); undo(); showToast('Undo ↩', ''); return; }
         if (e.key === 'y' || (e.key === 'z' && e.shiftKey)) { e.preventDefault(); redo(); showToast('Redo ↪', ''); return; }
@@ -148,7 +129,6 @@ export default function WhiteboardPage({ onNavigate }: Props) {
         if (e.key === ']') { e.preventDefault(); useBoardStore.getState().bringForward(); return; }
         if (e.key === '[') { e.preventDefault(); useBoardStore.getState().sendBackward(); return; }
       }
-
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key) && selectedIds.length) {
         e.preventDefault();
         const amt = e.shiftKey ? 10 : 1;
@@ -164,44 +144,86 @@ export default function WhiteboardPage({ onNavigate }: Props) {
     return () => window.removeEventListener('keydown', onKey);
   }, [setTool, undo, redo, copySelected, paste, duplicateSelected, deleteSelected, addSticky, viewport, selectedIds, setViewport, handleExport]);
 
+  // ── Kawaii toolbar styles ────────────────────────────────────────────────
+  const toolbarBg       = theme.kawaii ? 'white' : theme.surface;
+  const toolbarBorder   = theme.kawaii ? '#FCE4EC' : theme.border;
+  const toolbarText     = theme.kawaii ? '#3D1A2E' : theme.text;
+  const toolbarMuted    = theme.kawaii ? '#7B3F6E' : theme.textMuted;
+  const toolbarSubtle   = theme.kawaii ? '#AD6590' : theme.textSubtle;
+  const btnActive       = theme.primary;
+  const zoomBtnStyle: React.CSSProperties = {
+    padding: '2px 8px',
+    background: theme.surface, border: `1px solid ${theme.borderStrong}`,
+    borderRadius: theme.radiusSm,
+    cursor: 'pointer', fontSize: '0.85rem', color: theme.primary, fontWeight: 800,
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', paddingTop: 60 }}>
-      {/* Word-style top toolbar */}
-      <div className="word-toolbar" style={{ padding: '5px 12px', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap', zIndex: 50, minHeight: 44 }}>
-        <div className="word-toolbar-group">
+
+      {/* ── Top toolbar ──────────────────────────────────────────────────── */}
+      <div style={{
+        padding: '5px 12px', display: 'flex', alignItems: 'center', gap: 8,
+        flexWrap: 'nowrap', zIndex: 50, minHeight: 44,
+        background: toolbarBg,
+        borderBottom: `1.5px solid ${toolbarBorder}`,
+        boxShadow: theme.kawaii ? 'none' : theme.shadow,
+      }}>
+
+        {/* File actions */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, paddingRight: 8, borderRight: `1px solid ${toolbarBorder}` }}>
           {[
-            { icon: '💾', label: 'Save', action: () => { try { localStorage.setItem('blossom-board-state', JSON.stringify(elements)); showToast('Saved!', '💾'); } catch {} } },
-            { icon: '🖨️', label: 'Print', action: () => window.print() },
+            { icon: theme.kawaii ? '💾' : '↓', label: 'Save', action: () => { try { localStorage.setItem('blossom-board-state', JSON.stringify(elements)); showToast('Saved!', '💾'); } catch {} } },
+            { icon: theme.kawaii ? '🖨️' : '⎙', label: 'Print', action: () => window.print() },
           ].map(b => (
             <button key={b.label} title={b.label} onClick={b.action}
-              style={{ padding: '3px 7px', background: 'transparent', border: 'none', cursor: 'pointer', borderRadius: 5, transition: 'background 0.15s', fontFamily: 'Nunito, sans-serif', color: '#3D1A2E', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}
-              onMouseEnter={e => (e.currentTarget.style.background = '#FFC8DE')}
+              style={{
+                padding: '3px 8px', background: 'transparent', border: 'none', cursor: 'pointer',
+                borderRadius: theme.radiusSm, transition: 'background 0.15s',
+                fontFamily: 'Nunito, sans-serif', color: toolbarText,
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1,
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = theme.primaryLight)}
               onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
               <span style={{ fontSize: '0.95rem' }}>{b.icon}</span>
-              <span style={{ fontSize: '0.52rem', color: '#7B3F6E', fontWeight: 700 }}>{b.label}</span>
+              <span style={{ fontSize: '0.52rem', color: toolbarSubtle, fontWeight: 700 }}>{b.label}</span>
             </button>
           ))}
         </div>
 
-        <div className="word-toolbar-group">
-          <span style={{ fontSize: '0.68rem', fontWeight: 800, color: '#AD6590' }}>Zoom:</span>
-          <button onClick={() => setViewport({ scale: Math.max(0.1, viewport.scale - 0.1) })} style={{ padding: '2px 6px', background: 'white', border: '1px solid #F48FB1', borderRadius: 4, cursor: 'pointer', fontSize: '0.85rem', color: '#E91E8C', fontWeight: 800 }}>−</button>
-          <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#3D1A2E', minWidth: 40, textAlign: 'center' }}>{Math.round(viewport.scale * 100)}%</span>
-          <button onClick={() => setViewport({ scale: Math.min(4, viewport.scale + 0.1) })} style={{ padding: '2px 6px', background: 'white', border: '1px solid #F48FB1', borderRadius: 4, cursor: 'pointer', fontSize: '0.85rem', color: '#E91E8C', fontWeight: 800 }}>+</button>
-          <button onClick={() => setViewport({ x: 0, y: 0, scale: 1 })} title="Fit (F)" style={{ padding: '2px 8px', background: 'white', border: '1px solid #F48FB1', borderRadius: 4, cursor: 'pointer', fontSize: '0.72rem', color: '#E91E8C', fontWeight: 800 }}>Fit</button>
+        {/* Zoom controls */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, paddingRight: 8, borderRight: `1px solid ${toolbarBorder}` }}>
+          <span style={{ fontSize: '0.68rem', fontWeight: 800, color: toolbarSubtle }}>Zoom</span>
+          <button onClick={() => setViewport({ scale: Math.max(0.1, viewport.scale - 0.1) })} style={zoomBtnStyle}>−</button>
+          <span style={{ fontSize: '0.78rem', fontWeight: 700, color: toolbarText, minWidth: 40, textAlign: 'center' }}>{Math.round(viewport.scale * 100)}%</span>
+          <button onClick={() => setViewport({ scale: Math.min(4, viewport.scale + 0.1) })} style={zoomBtnStyle}>+</button>
+          <button onClick={() => setViewport({ x: 0, y: 0, scale: 1 })} style={zoomBtnStyle}>Fit</button>
         </div>
 
-        <div className="word-toolbar-group">
-          <button onClick={handleShare} style={{ padding: '4px 12px', background: '#E91E8C', border: 'none', borderRadius: 7, cursor: 'pointer', fontSize: '0.78rem', fontWeight: 800, color: 'white', fontFamily: 'Nunito, sans-serif' }}>📤 Share</button>
-          <button onClick={handleExport} style={{ padding: '4px 12px', background: 'white', border: '1px solid #F48FB1', borderRadius: 7, cursor: 'pointer', fontSize: '0.78rem', fontWeight: 800, color: '#E91E8C', fontFamily: 'Nunito, sans-serif' }}>💾 Export PNG</button>
+        {/* Share/Export */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button onClick={handleShare} style={{
+            padding: '4px 14px', background: btnActive, border: 'none',
+            borderRadius: theme.radiusMd, cursor: 'pointer',
+            fontSize: '0.78rem', fontWeight: theme.labelWeight, color: 'white',
+            fontFamily: 'Nunito, sans-serif',
+          }}>{theme.kawaii ? '📤 Share' : '↑ Share'}</button>
+          <button onClick={handleExport} style={{
+            padding: '4px 14px', background: theme.surface,
+            border: `1px solid ${theme.borderStrong}`,
+            borderRadius: theme.radiusMd, cursor: 'pointer',
+            fontSize: '0.78rem', fontWeight: theme.labelWeight, color: theme.primary,
+            fontFamily: 'Nunito, sans-serif',
+          }}>{theme.kawaii ? '💾 Export PNG' : '↓ Export PNG'}</button>
         </div>
 
-        <div style={{ marginLeft: 'auto', fontSize: '0.65rem', color: '#AD6590', fontWeight: 700, whiteSpace: 'nowrap' }}>
-          V·P·R·O·L·A·S·H=Tools · Ctrl+Z=Undo · F=Fit · Del=Delete
+        {/* Shortcut hint */}
+        <div style={{ marginLeft: 'auto', fontSize: '0.62rem', color: toolbarSubtle, fontWeight: 600, whiteSpace: 'nowrap' }}>
+          {theme.kawaii ? 'P=Pen · E=Erase · Ctrl+Z=Undo · F=Fit · Del=Delete' : 'P Pen · E Erase · Ctrl+Z Undo · F Fit · Del Delete'}
         </div>
       </div>
 
-      {/* Board layout */}
+      {/* ── Board layout ─────────────────────────────────────────────────── */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <Toolbar onAddSticky={addSticky} onExport={handleExport} onShare={handleShare} />
         <div className="board-canvas-area" style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
