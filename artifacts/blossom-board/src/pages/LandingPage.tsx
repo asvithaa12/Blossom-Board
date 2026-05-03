@@ -13,14 +13,13 @@ const CYCLING_WORDS = [
   'chatbot',
 ];
 
-function TypewriterCycler() {
+function TypewriterCycler({ small = false }: { small?: boolean }) {
   const [displayed, setDisplayed] = useState('');
   const [wordIdx, setWordIdx] = useState(0);
   const [phase, setPhase] = useState<'typing' | 'hold' | 'deleting' | 'pause'>('typing');
   const [cursorVisible, setCursorVisible] = useState(true);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Blink cursor independently
   useEffect(() => {
     const id = setInterval(() => setCursorVisible(v => !v), 530);
     return () => clearInterval(id);
@@ -33,12 +32,9 @@ function TypewriterCycler() {
 
   useEffect(() => {
     const word = CYCLING_WORDS[wordIdx];
-
     if (phase === 'typing') {
       if (displayed.length < word.length) {
-        schedule(() => {
-          setDisplayed(word.slice(0, displayed.length + 1));
-        }, 55);
+        schedule(() => setDisplayed(word.slice(0, displayed.length + 1)), 55);
       } else {
         schedule(() => setPhase('hold'), 1600);
       }
@@ -46,9 +42,7 @@ function TypewriterCycler() {
       schedule(() => setPhase('deleting'), 0);
     } else if (phase === 'deleting') {
       if (displayed.length > 0) {
-        schedule(() => {
-          setDisplayed(d => d.slice(0, -1));
-        }, 32);
+        schedule(() => setDisplayed(d => d.slice(0, -1)), 32);
       } else {
         schedule(() => setPhase('pause'), 280);
       }
@@ -56,9 +50,50 @@ function TypewriterCycler() {
       setWordIdx(i => (i + 1) % CYCLING_WORDS.length);
       setPhase('typing');
     }
-
     return () => { if (timerRef.current) clearTimeout(timerRef.current); };
   }, [displayed, phase, wordIdx, schedule]);
+
+  if (small) {
+    return (
+      <div style={{
+        fontFamily: "'Comfortaa', cursive",
+        fontSize: '0.95rem',
+        fontWeight: 600,
+        textAlign: 'center',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '0.4rem',
+        flexWrap: 'wrap',
+        padding: '0.5rem 1rem',
+        background: 'rgba(255,255,255,0.7)',
+        border: '1.5px solid #F48FB1',
+        borderRadius: 50,
+        backdropFilter: 'blur(4px)',
+        boxShadow: '0 2px 12px rgba(233,30,140,0.1)',
+        maxWidth: 480,
+        margin: '0 auto',
+      }}>
+        <span style={{ color: '#c9607a', whiteSpace: 'nowrap' }}>Blossom your ideas with</span>
+        <span style={{
+          color: '#E91E8C',
+          fontWeight: 700,
+          minWidth: 120,
+          display: 'inline-flex',
+          alignItems: 'center',
+        }}>
+          {displayed}
+          <span style={{
+            opacity: cursorVisible ? 1 : 0,
+            color: '#F48FB1',
+            fontWeight: 300,
+            marginLeft: '1px',
+            transition: 'opacity 0.1s',
+          }}>|</span>
+        </span>
+      </div>
+    );
+  }
 
   return (
     <h1 style={{
@@ -70,25 +105,13 @@ function TypewriterCycler() {
       position: 'relative',
       zIndex: 2,
       textAlign: 'center',
-      letterSpacing: '-0.01em',
     }}>
       <span style={{ color: '#c9607a', display: 'block', marginBottom: '0.1em' }}>
         Blossom your ideas with
       </span>
-      <span style={{
-        color: '#E91E8C',
-        fontWeight: 700,
-        display: 'inline-block',
-        minHeight: '1.35em',
-      }}>
+      <span style={{ color: '#E91E8C', fontWeight: 700, display: 'inline-block', minHeight: '1.35em' }}>
         {displayed}
-        <span style={{
-          opacity: cursorVisible ? 1 : 0,
-          color: '#F48FB1',
-          fontWeight: 300,
-          marginLeft: '2px',
-          transition: 'opacity 0.1s',
-        }}>|</span>
+        <span style={{ opacity: cursorVisible ? 1 : 0, color: '#F48FB1', fontWeight: 300, marginLeft: '2px', transition: 'opacity 0.1s' }}>|</span>
       </span>
     </h1>
   );
@@ -189,9 +212,10 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
           ✨ HackStreet 2K26 · Problem Statement 4
         </motion.div>
 
-        <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-          <TypewriterCycler />
-        </motion.div>
+        <motion.h1 initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
+          style={{ fontSize: 'clamp(2.8rem, 7vw, 5rem)', fontWeight: 900, color: '#3D1A2E', lineHeight: 1.1, marginBottom: '1rem', position: 'relative', zIndex: 2 }}>
+          Your ideas, <em style={{ fontStyle: 'normal', color: '#E91E8C' }}>in full bloom</em> 🌸
+        </motion.h1>
 
         <motion.p initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
           style={{ fontSize: '1.1rem', color: '#7B3F6E', maxWidth: 540, lineHeight: 1.6, marginBottom: '2rem', position: 'relative', zIndex: 2 }}>
@@ -220,6 +244,12 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
             onMouseLeave={e => { const el = e.target as HTMLElement; el.style.background = 'white'; el.style.transform = 'translateY(0)'; }}>
             View Tasks 📋
           </button>
+        </motion.div>
+
+        {/* Typewriter strip — replaces the chip blobs */}
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.65 }}
+          style={{ position: 'relative', zIndex: 2, marginTop: '2rem' }}>
+          <TypewriterCycler small />
         </motion.div>
 
       </section>
