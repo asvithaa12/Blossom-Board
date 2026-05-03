@@ -1,7 +1,98 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion, useInView } from 'framer-motion';
 
 interface LandingPageProps { onNavigate: (page: string) => void; }
+
+const CYCLING_WORDS = [
+  'freehand drawing',
+  'sticky notes',
+  'zoom & pan',
+  'collab mode',
+  'taskboard',
+  'export png',
+  'chatbot',
+];
+
+function TypewriterCycler() {
+  const [displayed, setDisplayed] = useState('');
+  const [wordIdx, setWordIdx] = useState(0);
+  const [phase, setPhase] = useState<'typing' | 'hold' | 'deleting' | 'pause'>('typing');
+  const [cursorVisible, setCursorVisible] = useState(true);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Blink cursor independently
+  useEffect(() => {
+    const id = setInterval(() => setCursorVisible(v => !v), 530);
+    return () => clearInterval(id);
+  }, []);
+
+  const schedule = useCallback((fn: () => void, ms: number) => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(fn, ms);
+  }, []);
+
+  useEffect(() => {
+    const word = CYCLING_WORDS[wordIdx];
+
+    if (phase === 'typing') {
+      if (displayed.length < word.length) {
+        schedule(() => {
+          setDisplayed(word.slice(0, displayed.length + 1));
+        }, 55);
+      } else {
+        schedule(() => setPhase('hold'), 1600);
+      }
+    } else if (phase === 'hold') {
+      schedule(() => setPhase('deleting'), 0);
+    } else if (phase === 'deleting') {
+      if (displayed.length > 0) {
+        schedule(() => {
+          setDisplayed(d => d.slice(0, -1));
+        }, 32);
+      } else {
+        schedule(() => setPhase('pause'), 280);
+      }
+    } else if (phase === 'pause') {
+      setWordIdx(i => (i + 1) % CYCLING_WORDS.length);
+      setPhase('typing');
+    }
+
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+  }, [displayed, phase, wordIdx, schedule]);
+
+  return (
+    <h1 style={{
+      fontFamily: "'Comfortaa', cursive",
+      fontSize: 'clamp(2rem, 5.5vw, 3.8rem)',
+      fontWeight: 700,
+      lineHeight: 1.25,
+      marginBottom: '1.2rem',
+      position: 'relative',
+      zIndex: 2,
+      textAlign: 'center',
+      letterSpacing: '-0.01em',
+    }}>
+      <span style={{ color: '#c9607a', display: 'block', marginBottom: '0.1em' }}>
+        Blossom your ideas with
+      </span>
+      <span style={{
+        color: '#E91E8C',
+        fontWeight: 700,
+        display: 'inline-block',
+        minHeight: '1.35em',
+      }}>
+        {displayed}
+        <span style={{
+          opacity: cursorVisible ? 1 : 0,
+          color: '#F48FB1',
+          fontWeight: 300,
+          marginLeft: '2px',
+          transition: 'opacity 0.1s',
+        }}>|</span>
+      </span>
+    </h1>
+  );
+}
 
 function BlossomGhost() {
   return (
@@ -98,10 +189,9 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
           ✨ HackStreet 2K26 · Problem Statement 4
         </motion.div>
 
-        <motion.h1 initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
-          style={{ fontSize: 'clamp(2.8rem, 7vw, 5rem)', fontWeight: 900, color: '#3D1A2E', lineHeight: 1.1, marginBottom: '1rem', position: 'relative', zIndex: 2 }}>
-          Your ideas, <em style={{ fontStyle: 'normal', color: '#E91E8C' }}>in full bloom</em> 🌸
-        </motion.h1>
+        <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+          <TypewriterCycler />
+        </motion.div>
 
         <motion.p initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
           style={{ fontSize: '1.1rem', color: '#7B3F6E', maxWidth: 540, lineHeight: 1.6, marginBottom: '2rem', position: 'relative', zIndex: 2 }}>
@@ -132,17 +222,6 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
           </button>
         </motion.div>
 
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.6 }}
-          style={{ display: 'flex', gap: '0.8rem', flexWrap: 'wrap', justifyContent: 'center', position: 'relative', zIndex: 2, marginTop: '2.5rem' }}>
-          {['🎨 Freehand Drawing', '📌 Sticky Notes', '🔍 Zoom & Pan', '👥 Collab Mode', '📅 Task Board', '💾 Export PNG'].map(chip => (
-            <div key={chip} style={{
-              background: 'white', border: '1.5px solid #F48FB1',
-              borderRadius: 50, padding: '0.4rem 1.1rem',
-              fontSize: '0.8rem', fontWeight: 700, color: '#7B3F6E',
-              display: 'flex', alignItems: 'center', gap: '0.4rem',
-            }}>{chip}</div>
-          ))}
-        </motion.div>
       </section>
 
       {/* STATS */}
