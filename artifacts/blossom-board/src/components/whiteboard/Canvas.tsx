@@ -1,5 +1,6 @@
 import { useRef, useEffect, useLayoutEffect, useState } from 'react';
 import { useBoardStore, BoardElement, Point } from '../../store/boardStore';
+import { useTheme } from '../../context/ThemeContext';
 import StickyNote from './StickyNote';
 import GhostCursors from './GhostCursors';
 import CursorGlitter from './CursorGlitter';
@@ -13,59 +14,34 @@ interface InProg {
   points?: Point[];
 }
 
-// ── Variable-width pressure stroke (filled trapezoids + round caps) ──────────
-function drawPressureStroke(
-  ctx: CanvasRenderingContext2D,
-  points: Point[],
-  color: string,
-  baseWidth: number,
-) {
+// ── Variable-width pressure stroke ───────────────────────────────────────────
+function drawPressureStroke(ctx: CanvasRenderingContext2D, points: Point[], color: string, baseWidth: number) {
   if (points.length === 0) return;
   ctx.fillStyle = color;
-
   if (points.length === 1) {
     const r = Math.max((baseWidth * (points[0].pressure ?? 0.5)) / 2, 0.5);
-    ctx.beginPath();
-    ctx.arc(points[0].x, points[0].y, r, 0, Math.PI * 2);
-    ctx.fill();
-    return;
+    ctx.beginPath(); ctx.arc(points[0].x, points[0].y, r, 0, Math.PI * 2); ctx.fill(); return;
   }
-
   for (let i = 0; i < points.length - 1; i++) {
-    const p0 = points[i];
-    const p1 = points[i + 1];
+    const p0 = points[i], p1 = points[i + 1];
     const r0 = Math.max((baseWidth * (p0.pressure ?? 0.5)) / 2, 0.5);
     const r1 = Math.max((baseWidth * (p1.pressure ?? 0.5)) / 2, 0.5);
-    const dx = p1.x - p0.x;
-    const dy = p1.y - p0.y;
+    const dx = p1.x - p0.x, dy = p1.y - p0.y;
     const len = Math.hypot(dx, dy);
     if (len < 0.1) continue;
-    const nx = -dy / len;
-    const ny = dx / len;
-
-    // Filled trapezoid segment
+    const nx = -dy / len, ny = dx / len;
     ctx.beginPath();
-    ctx.moveTo(p0.x + nx * r0, p0.y + ny * r0);
-    ctx.lineTo(p1.x + nx * r1, p1.y + ny * r1);
-    ctx.lineTo(p1.x - nx * r1, p1.y - ny * r1);
-    ctx.lineTo(p0.x - nx * r0, p0.y - ny * r0);
-    ctx.closePath();
-    ctx.fill();
-
-    // Round join at p0
-    ctx.beginPath();
-    ctx.arc(p0.x, p0.y, r0, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.moveTo(p0.x + nx * r0, p0.y + ny * r0); ctx.lineTo(p1.x + nx * r1, p1.y + ny * r1);
+    ctx.lineTo(p1.x - nx * r1, p1.y - ny * r1); ctx.lineTo(p0.x - nx * r0, p0.y - ny * r0);
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.arc(p0.x, p0.y, r0, 0, Math.PI * 2); ctx.fill();
   }
-
-  // Final round cap
   const last = points[points.length - 1];
   ctx.beginPath();
   ctx.arc(last.x, last.y, Math.max((baseWidth * (last.pressure ?? 0.5)) / 2, 0.5), 0, Math.PI * 2);
   ctx.fill();
 }
 
-// ── Apply start/end taper for calligraphic feel ──────────────────────────────
 function applyTaper(points: Point[], taperLen = 10): Point[] {
   if (points.length <= 2) return points;
   const half = Math.min(taperLen, Math.floor(points.length / 2));
@@ -77,18 +53,12 @@ function applyTaper(points: Point[], taperLen = 10): Point[] {
   });
 }
 
-// ── Legacy uniform-width bezier (for old strokes without pressure) ────────────
 function drawBezierStroke(ctx: CanvasRenderingContext2D, points: Point[], color: string, width: number) {
   if (points.length < 2) return;
-  ctx.strokeStyle = color;
-  ctx.lineWidth = width;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  ctx.beginPath();
-  ctx.moveTo(points[0].x, points[0].y);
+  ctx.strokeStyle = color; ctx.lineWidth = width; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.beginPath(); ctx.moveTo(points[0].x, points[0].y);
   for (let i = 1; i < points.length - 1; i++) {
-    const mx = (points[i].x + points[i + 1].x) / 2;
-    const my = (points[i].y + points[i + 1].y) / 2;
+    const mx = (points[i].x + points[i + 1].x) / 2, my = (points[i].y + points[i + 1].y) / 2;
     ctx.quadraticCurveTo(points[i].x, points[i].y, mx, my);
   }
   ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
@@ -96,6 +66,11 @@ function drawBezierStroke(ctx: CanvasRenderingContext2D, points: Point[], color:
 }
 
 export default function Canvas(_: { onExport: (c: HTMLCanvasElement) => void }) {
+  const { theme } = useTheme();
+  // Keep a ref so canvas drawing callbacks always see current theme
+  const themeRef = useRef(theme);
+  themeRef.current = theme;
+
   const canvasRef     = useRef<HTMLCanvasElement>(null);
   const liveCanvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef       = useRef<HTMLDivElement>(null);
@@ -112,16 +87,12 @@ export default function Canvas(_: { onExport: (c: HTMLCanvasElement) => void }) 
 
   const store = useBoardStore();
 
-  // ── Sync both canvas attribute sizes via ResizeObserver ──────────────────
   useLayoutEffect(() => {
-    const canvas     = canvasRef.current!;
-    const liveCanvas = liveCanvasRef.current!;
-    const wrap       = wrapRef.current!;
+    const canvas = canvasRef.current!, liveCanvas = liveCanvasRef.current!, wrap = wrapRef.current!;
     const sync = () => {
       const w = wrap.offsetWidth, h = wrap.offsetHeight;
       if (w > 0 && h > 0) {
-        canvas.width = w; canvas.height = h;
-        liveCanvas.width = w; liveCanvas.height = h;
+        canvas.width = w; canvas.height = h; liveCanvas.width = w; liveCanvas.height = h;
         setSize({ w, h });
       }
     };
@@ -131,22 +102,16 @@ export default function Canvas(_: { onExport: (c: HTMLCanvasElement) => void }) 
     return () => obs.disconnect();
   }, []);
 
-  // ── Draw one committed element on base canvas ─────────────────────────────
   const drawEl = (ctx: CanvasRenderingContext2D, el: BoardElement | InProg, dashed = false) => {
     ctx.save();
     if (dashed) ctx.setLineDash([6, 4]);
-
     if (el.type === 'stroke' && el.points && el.points.length > 0) {
       ctx.setLineDash([]);
       const hasPressure = el.points.some(p => p.pressure !== undefined);
-      if (hasPressure) {
-        drawPressureStroke(ctx, el.points, el.strokeColor, el.strokeWidth);
-      } else {
-        drawBezierStroke(ctx, el.points, el.strokeColor, el.strokeWidth);
-      }
+      if (hasPressure) drawPressureStroke(ctx, el.points, el.strokeColor, el.strokeWidth);
+      else drawBezierStroke(ctx, el.points, el.strokeColor, el.strokeWidth);
     } else if (el.type === 'rect') {
-      ctx.strokeStyle = el.strokeColor; ctx.lineWidth = el.strokeWidth;
-      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.strokeStyle = el.strokeColor; ctx.lineWidth = el.strokeWidth; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
       ctx.beginPath(); ctx.roundRect(el.x, el.y, el.w, el.h, 4); ctx.stroke();
     } else if (el.type === 'ellipse') {
       ctx.strokeStyle = el.strokeColor; ctx.lineWidth = el.strokeWidth;
@@ -154,12 +119,10 @@ export default function Canvas(_: { onExport: (c: HTMLCanvasElement) => void }) 
       ctx.ellipse(el.x + el.w / 2, el.y + el.h / 2, Math.abs(el.w / 2), Math.abs(el.h / 2), 0, 0, Math.PI * 2);
       ctx.stroke();
     } else if (el.type === 'line') {
-      ctx.strokeStyle = el.strokeColor; ctx.lineWidth = el.strokeWidth;
-      ctx.lineCap = 'round';
+      ctx.strokeStyle = el.strokeColor; ctx.lineWidth = el.strokeWidth; ctx.lineCap = 'round';
       ctx.beginPath(); ctx.moveTo(el.x, el.y); ctx.lineTo(el.x + el.w, el.y + el.h); ctx.stroke();
     } else if (el.type === 'arrow') {
-      ctx.strokeStyle = el.strokeColor; ctx.lineWidth = el.strokeWidth;
-      ctx.lineCap = 'round';
+      ctx.strokeStyle = el.strokeColor; ctx.lineWidth = el.strokeWidth; ctx.lineCap = 'round';
       const ex = el.x + el.w, ey = el.y + el.h;
       const ang = Math.atan2(el.h, el.w), hLen = Math.min(22, Math.hypot(el.w, el.h) * 0.3);
       ctx.beginPath(); ctx.moveTo(el.x, el.y); ctx.lineTo(ex, ey); ctx.stroke();
@@ -176,17 +139,14 @@ export default function Canvas(_: { onExport: (c: HTMLCanvasElement) => void }) 
     ctx.restore();
   };
 
-  // ── Redraw all committed elements on base canvas ──────────────────────────
   const redraw = () => {
-    const canvas     = canvasRef.current;
-    const liveCanvas = liveCanvasRef.current;
+    const canvas = canvasRef.current, liveCanvas = liveCanvasRef.current;
     if (!canvas || canvas.width === 0 || canvas.height === 0) return;
     const ctx = canvas.getContext('2d')!;
     const { elements, viewport, selectedIds } = store;
+    const selColor = themeRef.current.primary;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Clear live canvas when committed elements change (avoids double-draw ghost)
     if (liveCanvas && !inProg.current) {
       liveCanvas.getContext('2d')!.clearRect(0, 0, liveCanvas.width, liveCanvas.height);
     }
@@ -202,7 +162,7 @@ export default function Canvas(_: { onExport: (c: HTMLCanvasElement) => void }) 
 
       if (selectedIds.includes(el.id)) {
         ctx.save();
-        ctx.strokeStyle = '#E91E8C';
+        ctx.strokeStyle = selColor;
         ctx.lineWidth = 1.5 / viewport.scale;
         ctx.setLineDash([5, 4]);
         const pad = 8;
@@ -219,10 +179,11 @@ export default function Canvas(_: { onExport: (c: HTMLCanvasElement) => void }) 
         }
         ctx.strokeRect(bx, by, bw, bh);
         ctx.setLineDash([]);
-        [[bx, by], [bx + bw / 2, by], [bx + bw, by], [bx, by + bh / 2], [bx + bw, by + bh / 2],
-          [bx, by + bh], [bx + bw / 2, by + bh], [bx + bw, by + bh]].forEach(([hx, hy]) => {
+        [[bx, by], [bx + bw / 2, by], [bx + bw, by], [bx, by + bh / 2],
+          [bx + bw, by + bh / 2], [bx, by + bh], [bx + bw / 2, by + bh], [bx + bw, by + bh]
+        ].forEach(([hx, hy]) => {
           ctx.fillStyle = 'white'; ctx.fillRect(hx - 5, hy - 5, 10, 10);
-          ctx.strokeStyle = '#E91E8C'; ctx.lineWidth = 1.5 / viewport.scale; ctx.strokeRect(hx - 5, hy - 5, 10, 10);
+          ctx.strokeStyle = selColor; ctx.lineWidth = 1.5 / viewport.scale; ctx.strokeRect(hx - 5, hy - 5, 10, 10);
         });
         ctx.restore();
       }
@@ -230,18 +191,15 @@ export default function Canvas(_: { onExport: (c: HTMLCanvasElement) => void }) 
     ctx.restore();
   };
 
-  // ── Draw only the in-progress element on the live canvas ─────────────────
   const drawLive = () => {
     const liveCanvas = liveCanvasRef.current;
     if (!liveCanvas || !inProg.current) return;
     const ctx = liveCanvas.getContext('2d')!;
     const { viewport } = store;
-
     ctx.clearRect(0, 0, liveCanvas.width, liveCanvas.height);
     ctx.save();
     ctx.translate(viewport.x, viewport.y);
     ctx.scale(viewport.scale, viewport.scale);
-
     const ip = inProg.current;
     if (ip.type === 'stroke' && ip.points && ip.points.length > 0) {
       drawPressureStroke(ctx, ip.points, ip.strokeColor, ip.strokeWidth);
@@ -251,25 +209,20 @@ export default function Canvas(_: { onExport: (c: HTMLCanvasElement) => void }) 
     ctx.restore();
   };
 
-  // Redraw committed elements when store state changes
   useEffect(() => { redraw(); });
 
-  // ── Coordinate helper — self-heals canvas attribute size ─────────────────
   const toWorld = (e: { clientX: number; clientY: number }) => {
     const canvas = canvasRef.current!;
-    const rect   = canvas.getBoundingClientRect();
+    const rect = canvas.getBoundingClientRect();
     if (rect.width > 0 && rect.height > 0) {
       const rw = Math.round(rect.width), rh = Math.round(rect.height);
-      if (canvas.width !== rw)  canvas.width  = rw;
+      if (canvas.width !== rw) canvas.width = rw;
       if (canvas.height !== rh) canvas.height = rh;
     }
-    const sx = e.clientX - rect.left;
-    const sy = e.clientY - rect.top;
     const vp = store.viewport;
-    return { x: (sx - vp.x) / vp.scale, y: (sy - vp.y) / vp.scale };
+    return { x: (e.clientX - rect.left - vp.x) / vp.scale, y: (e.clientY - rect.top - vp.y) / vp.scale };
   };
 
-  // ── Hit test ──────────────────────────────────────────────────────────────
   const hitEl = (wx: number, wy: number) => {
     const { elements, viewport } = store;
     const pad = 10 / viewport.scale;
@@ -288,38 +241,26 @@ export default function Canvas(_: { onExport: (c: HTMLCanvasElement) => void }) 
     return null;
   };
 
-  // ── Mouse down ────────────────────────────────────────────────────────────
   const handleDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (e.button === 2) return;
     setCtxMenu(null);
     const { tool, color, strokeWidth, viewport, elements, selectIds, updateElement, addElement, pushHistory } = store;
     const { x: wx, y: wy } = toWorld(e);
 
-    if (tool === 'pan' || spaceOn.current) {
-      panLast.current = { x: e.clientX, y: e.clientY };
-      return;
-    }
+    if (tool === 'pan' || spaceOn.current) { panLast.current = { x: e.clientX, y: e.clientY }; return; }
     if (tool === 'eraser') {
       const hit = hitEl(wx, wy);
-      if (hit) {
-        useBoardStore.getState().selectIds([hit.id]);
-        useBoardStore.getState().deleteSelected();
-      }
+      if (hit) { useBoardStore.getState().selectIds([hit.id]); useBoardStore.getState().deleteSelected(); }
       return;
     }
     if (tool === 'select') {
       const hit = hitEl(wx, wy);
       if (hit) {
-        selectIds([hit.id]);
-        pushHistory();
+        selectIds([hit.id]); pushHistory();
         const ox = hit.x, oy = hit.y, mx0 = e.clientX, my0 = e.clientY;
-        const mv = (ev: MouseEvent) => updateElement(hit.id, {
-          x: ox + (ev.clientX - mx0) / viewport.scale,
-          y: oy + (ev.clientY - my0) / viewport.scale,
-        });
+        const mv = (ev: MouseEvent) => updateElement(hit.id, { x: ox + (ev.clientX - mx0) / viewport.scale, y: oy + (ev.clientY - my0) / viewport.scale });
         const up = () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up); };
-        window.addEventListener('mousemove', mv);
-        window.addEventListener('mouseup', up);
+        window.addEventListener('mousemove', mv); window.addEventListener('mouseup', up);
       } else selectIds([]);
       return;
     }
@@ -334,65 +275,38 @@ export default function Canvas(_: { onExport: (c: HTMLCanvasElement) => void }) 
 
     if (tool === 'pen') {
       const now = performance.now();
-      // Start point has low pressure (taper builds naturally via applyTaper on commit)
-      const startPt: Point = { x: wx, y: wy, pressure: 0.3 };
       rawPts.current = [{ x: wx, y: wy, t: now }];
-      inProg.current = {
-        id: uid(), type: 'stroke',
-        x: wx, y: wy, w: 0, h: 0,
-        strokeColor: color, strokeWidth,
-        points: [startPt],
-      };
+      inProg.current = { id: uid(), type: 'stroke', x: wx, y: wy, w: 0, h: 0, strokeColor: color, strokeWidth, points: [{ x: wx, y: wy, pressure: 0.3 }] };
       drawLive();
     } else {
       const map: Record<string, BoardElement['type']> = { rect: 'rect', ellipse: 'ellipse', line: 'line', arrow: 'arrow' };
-      if (map[tool]) {
-        inProg.current = { id: uid(), type: map[tool], x: wx, y: wy, w: 0, h: 0, strokeColor: color, strokeWidth };
-      }
+      if (map[tool]) inProg.current = { id: uid(), type: map[tool], x: wx, y: wy, w: 0, h: 0, strokeColor: color, strokeWidth };
     }
   };
 
-  // ── Mouse move ────────────────────────────────────────────────────────────
   const handleMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (panLast.current) {
       const dx = e.clientX - panLast.current.x, dy = e.clientY - panLast.current.y;
       panLast.current = { x: e.clientX, y: e.clientY };
-      store.setViewport({ x: store.viewport.x + dx, y: store.viewport.y + dy });
-      return;
+      store.setViewport({ x: store.viewport.x + dx, y: store.viewport.y + dy }); return;
     }
     if (!isDown.current || !inProg.current) return;
     const { x: wx, y: wy } = toWorld(e);
 
     if (inProg.current.type === 'stroke') {
-      const now = performance.now();
-      const raw = rawPts.current;
-      const last = raw[raw.length - 1];
-
-      // Point decimation — skip micro-movements
+      const now = performance.now(), raw = rawPts.current, last = raw[raw.length - 1];
       const dist = Math.hypot(wx - last.x, wy - last.y);
       if (dist < 1.2) return;
-
-      const dt    = Math.max(now - last.t, 1);
-      const speed = dist / dt; // px per ms
-
-      // Speed → pressure  (slow drawing = thick, fast = thin)
-      const SPEED_MAX   = 1.8;
+      const dt = Math.max(now - last.t, 1), speed = dist / dt;
+      const SPEED_MAX = 1.8;
       const rawPressure = Math.max(0.15, 1 - Math.min(speed / SPEED_MAX, 1) * 0.78);
-
-      // Smooth with exponential weighted average on previous point
-      const prevPts     = inProg.current.points || [];
+      const prevPts = inProg.current.points || [];
       const prevPressure = prevPts.length > 0 ? (prevPts[prevPts.length - 1].pressure ?? 0.5) : 0.5;
-      const smoothed    = prevPressure * 0.55 + rawPressure * 0.45;
-
+      const smoothed = prevPressure * 0.55 + rawPressure * 0.45;
       raw.push({ x: wx, y: wy, t: now });
-      const newPt: Point = { x: wx, y: wy, pressure: smoothed };
-      inProg.current = {
-        ...inProg.current,
-        points: [...prevPts, newPt],
-      };
+      inProg.current = { ...inProg.current, points: [...prevPts, { x: wx, y: wy, pressure: smoothed }] };
       drawLive();
     } else {
-      // Shapes
       const dw = e.shiftKey
         ? Math.sign(wx - startW.current.x) * Math.min(Math.abs(wx - startW.current.x), Math.abs(wy - startW.current.y))
         : wx - startW.current.x;
@@ -404,16 +318,12 @@ export default function Canvas(_: { onExport: (c: HTMLCanvasElement) => void }) 
     }
   };
 
-  // ── Mouse up ──────────────────────────────────────────────────────────────
   const handleUp = () => {
     panLast.current = null;
     if (!isDown.current) return;
     isDown.current = false;
-
     const ip = inProg.current;
     inProg.current = null;
-
-    // Clear live canvas immediately — redraw() will paint the committed element
     const liveCanvas = liveCanvasRef.current;
     if (liveCanvas) liveCanvas.getContext('2d')!.clearRect(0, 0, liveCanvas.width, liveCanvas.height);
 
@@ -421,13 +331,8 @@ export default function Canvas(_: { onExport: (c: HTMLCanvasElement) => void }) 
       const { addElement, elements } = store;
       if (ip.type === 'stroke') {
         let pts = ip.points || [];
-        if (pts.length > 1) {
-          pts = applyTaper(pts); // calligraphic start/end taper
-          addElement({ ...ip, fillColor: 'transparent', rotation: 0, zIndex: elements.length, points: pts } as BoardElement);
-        } else if (pts.length === 1) {
-          // Single dot
-          addElement({ ...ip, fillColor: 'transparent', rotation: 0, zIndex: elements.length, points: pts } as BoardElement);
-        }
+        if (pts.length > 1) { pts = applyTaper(pts); addElement({ ...ip, fillColor: 'transparent', rotation: 0, zIndex: elements.length, points: pts } as BoardElement); }
+        else if (pts.length === 1) addElement({ ...ip, fillColor: 'transparent', rotation: 0, zIndex: elements.length, points: pts } as BoardElement);
         rawPts.current = [];
       } else if (Math.abs(ip.w) > 3 || Math.abs(ip.h) > 3) {
         addElement({ ...ip, fillColor: 'transparent', rotation: 0, zIndex: elements.length } as BoardElement);
@@ -435,13 +340,11 @@ export default function Canvas(_: { onExport: (c: HTMLCanvasElement) => void }) 
     }
   };
 
-  // ── Wheel zoom / pan ──────────────────────────────────────────────────────
   const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
     e.preventDefault();
-    const canvas = canvasRef.current!;
-    const rect   = canvas.getBoundingClientRect();
-    const sx = (e.clientX - rect.left) * (canvas.width  / Math.max(rect.width,  1));
-    const sy = (e.clientY - rect.top)  * (canvas.height / Math.max(rect.height, 1));
+    const canvas = canvasRef.current!, rect = canvas.getBoundingClientRect();
+    const sx = (e.clientX - rect.left) * (canvas.width / Math.max(rect.width, 1));
+    const sy = (e.clientY - rect.top) * (canvas.height / Math.max(rect.height, 1));
     const vp = store.viewport;
     if (e.ctrlKey || e.metaKey) {
       const factor = e.deltaY < 0 ? 1.08 : 0.93;
@@ -453,64 +356,73 @@ export default function Canvas(_: { onExport: (c: HTMLCanvasElement) => void }) 
     }
   };
 
-  // Space key → pan mode
   useEffect(() => {
     const kd = (e: KeyboardEvent) => { if (e.code === 'Space' && e.target === document.body) { e.preventDefault(); spaceOn.current = true; } };
     const ku = (e: KeyboardEvent) => { if (e.code === 'Space') spaceOn.current = false; };
-    window.addEventListener('keydown', kd);
-    window.addEventListener('keyup', ku);
+    window.addEventListener('keydown', kd); window.addEventListener('keyup', ku);
     return () => { window.removeEventListener('keydown', kd); window.removeEventListener('keyup', ku); };
   }, []);
 
   const { elements, viewport, selectedIds } = store;
-  const cursor = store.tool === 'pan' || spaceOn.current
-    ? 'grab'
-    : store.tool === 'pen'
-    ? 'crosshair'
-    : store.tool === 'eraser'
-    ? 'cell'
-    : 'default';
+  const cursor = store.tool === 'pan' || spaceOn.current ? 'grab'
+    : store.tool === 'pen' ? 'crosshair'
+    : store.tool === 'eraser' ? 'cell' : 'default';
+
+  // ── Theme-derived canvas visuals ─────────────────────────────────────────
+  const isKawaii = theme.kawaii;
+  const canvasBg       = isKawaii ? '#FFF5F9'  : '#f8fafc';
+  const dotColor       = isKawaii ? '#F8BBD9'  : '#cbd5e1';
+  const rulerBg        = isKawaii
+    ? 'linear-gradient(180deg,#FFE0EE,#FFDDE9)'
+    : 'linear-gradient(180deg,#f1f5f9,#e2e8f0)';
+  const rulerBorder    = isKawaii ? '#F48FB155' : '#cbd5e155';
+  const rulerTickColor = isKawaii ? '#AD6590'   : '#94a3b8';
+  const hudBg          = theme.surface;
+  const hudBorder      = theme.border;
+  const hudBtnBorder   = theme.borderStrong;
+  const hudText        = theme.textMuted;
+  const hudPrimary     = theme.primary;
 
   return (
     <div
       ref={wrapRef}
       style={{
-        position: 'absolute', inset: 0, background: '#FFF5F9',
-        backgroundImage: 'radial-gradient(circle, #F8BBD9 1.5px, transparent 1.5px)',
+        position: 'absolute', inset: 0,
+        background: canvasBg,
+        backgroundImage: `radial-gradient(circle, ${dotColor} 1.5px, transparent 1.5px)`,
         backgroundSize: '24px 24px',
+        transition: 'background-color 0.35s',
       }}
     >
       {/* Ruler */}
       <div style={{
         position: 'absolute', top: 0, left: 0, right: 0, height: 20, zIndex: 4,
-        background: 'linear-gradient(180deg,#FFE0EE,#FFDDE9)',
-        borderBottom: '1px solid #F48FB155',
+        background: rulerBg,
+        borderBottom: `1px solid ${rulerBorder}`,
         display: 'flex', alignItems: 'flex-end', pointerEvents: 'none', userSelect: 'none',
+        transition: 'background 0.35s',
       }}>
         {Array.from({ length: 40 }, (_, i) => (
           <div key={i} style={{
-            flex: 1, borderLeft: '1px solid #F48FB133',
+            flex: 1, borderLeft: `1px solid ${rulerTickColor}33`,
             height: i % 5 === 0 ? '55%' : '22%',
             display: 'flex', alignItems: 'flex-end', paddingLeft: 1,
           }}>
-            {i % 10 === 0 && i > 0 && <span style={{ fontSize: '0.4rem', color: '#AD6590', fontWeight: 700 }}>{i * 10}</span>}
+            {i % 10 === 0 && i > 0 && <span style={{ fontSize: '0.4rem', color: rulerTickColor, fontWeight: 700 }}>{i * 10}</span>}
           </div>
         ))}
       </div>
 
-      {/* Base canvas — committed elements */}
+      {/* Base canvas */}
       <canvas
         ref={canvasRef}
         style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', cursor, display: 'block', touchAction: 'none' }}
-        onMouseDown={handleDown}
-        onMouseMove={handleMove}
-        onMouseUp={handleUp}
-        onMouseLeave={handleUp}
-        onWheel={handleWheel}
+        onMouseDown={handleDown} onMouseMove={handleMove} onMouseUp={handleUp}
+        onMouseLeave={handleUp} onWheel={handleWheel}
         onContextMenu={e => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
       />
 
-      {/* Live canvas — in-progress stroke / shape preview (pointer-events:none) */}
+      {/* Live canvas */}
       <canvas
         ref={liveCanvasRef}
         style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', display: 'block' }}
@@ -525,31 +437,35 @@ export default function Canvas(_: { onExport: (c: HTMLCanvasElement) => void }) 
         ))}
       </div>
 
-      {/* Ghost cursors */}
-      <div className="ghost-cursors-layer" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none', zIndex: 15 }}>
-        <GhostCursors containerWidth={size.w} containerHeight={size.h} />
-      </div>
+      {/* Ghost cursors — kawaii only */}
+      {isKawaii && (
+        <div className="ghost-cursors-layer" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none', zIndex: 15 }}>
+          <GhostCursors containerWidth={size.w} containerHeight={size.h} />
+        </div>
+      )}
 
-      {/* Glitter trail */}
-      <CursorGlitter containerRef={wrapRef as React.RefObject<HTMLElement>} />
+      {/* Glitter trail — kawaii only */}
+      {isKawaii && <CursorGlitter containerRef={wrapRef as React.RefObject<HTMLElement>} />}
 
       {/* Zoom HUD */}
       <div style={{
         position: 'absolute', bottom: '1rem', left: '50%', transform: 'translateX(-50%)',
-        background: 'white', borderRadius: 50, border: '1.5px solid #FCE4EC',
+        background: hudBg, borderRadius: isKawaii ? 50 : 10,
+        border: `1.5px solid ${hudBorder}`,
         padding: '0.4rem 0.9rem', display: 'flex', alignItems: 'center', gap: '0.7rem',
-        boxShadow: '0 4px 24px rgba(233,30,140,0.12)', zIndex: 20, fontFamily: 'Nunito,sans-serif',
+        boxShadow: theme.shadowMd, zIndex: 20, fontFamily: 'Nunito,sans-serif',
+        transition: 'background 0.35s, border-color 0.35s',
       }}>
         <button onClick={() => store.setViewport({ scale: Math.max(0.08, viewport.scale - 0.1) })}
-          style={{ width: 26, height: 26, borderRadius: '50%', border: '1.5px solid #F48FB1', background: 'white', cursor: 'pointer', color: '#E91E8C', fontWeight: 900, fontSize: '1rem', lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
-        <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#7B3F6E', minWidth: 40, textAlign: 'center' }}>{Math.round(viewport.scale * 100)}%</span>
+          style={{ width: 26, height: 26, borderRadius: isKawaii ? '50%' : 6, border: `1.5px solid ${hudBtnBorder}`, background: hudBg, cursor: 'pointer', color: hudPrimary, fontWeight: 900, fontSize: '1rem', lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
+        <span style={{ fontSize: '0.78rem', fontWeight: 800, color: hudText, minWidth: 40, textAlign: 'center' }}>{Math.round(viewport.scale * 100)}%</span>
         <button onClick={() => store.setViewport({ scale: Math.min(5, viewport.scale + 0.1) })}
-          style={{ width: 26, height: 26, borderRadius: '50%', border: '1.5px solid #F48FB1', background: 'white', cursor: 'pointer', color: '#E91E8C', fontWeight: 900, fontSize: '1rem', lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
-        <div style={{ width: 1, height: 16, background: '#FCE4EC' }} />
+          style={{ width: 26, height: 26, borderRadius: isKawaii ? '50%' : 6, border: `1.5px solid ${hudBtnBorder}`, background: hudBg, cursor: 'pointer', color: hudPrimary, fontWeight: 900, fontSize: '1rem', lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
+        <div style={{ width: 1, height: 16, background: hudBorder }} />
         <button onClick={() => store.setViewport({ x: 0, y: 0, scale: 1 })} title="Fit [F]"
-          style={{ width: 26, height: 26, borderRadius: '50%', border: '1.5px solid #F48FB1', background: 'white', cursor: 'pointer', color: '#E91E8C', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>⊡</button>
-        <div style={{ width: 1, height: 16, background: '#FCE4EC' }} />
-        <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#AD6590' }}>{elements.length} obj</span>
+          style={{ width: 26, height: 26, borderRadius: isKawaii ? '50%' : 6, border: `1.5px solid ${hudBtnBorder}`, background: hudBg, cursor: 'pointer', color: hudPrimary, fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>⊡</button>
+        <div style={{ width: 1, height: 16, background: hudBorder }} />
+        <span style={{ fontSize: '0.7rem', fontWeight: 700, color: hudText }}>{elements.length} obj</span>
       </div>
 
       {/* Context menu */}
@@ -566,7 +482,7 @@ export default function Canvas(_: { onExport: (c: HTMLCanvasElement) => void }) 
               <div className="context-item danger" onClick={() => { store.deleteSelected(); setCtxMenu(null); }}>🗑️ Delete</div>
             </>
           ) : (
-            <div className="context-item" style={{ color: '#AD6590', cursor: 'default', fontSize: '0.78rem' }}>Right-click a shape to edit</div>
+            <div className="context-item" style={{ color: theme.textSubtle, cursor: 'default', fontSize: '0.78rem' }}>Right-click a shape to edit</div>
           )}
         </div>
       )}

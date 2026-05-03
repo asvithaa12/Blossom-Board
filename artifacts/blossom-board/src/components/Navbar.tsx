@@ -32,7 +32,6 @@ function ThemeToggle() {
         boxShadow: on ? '0 2px 8px rgba(233,30,140,0.10)' : '0 1px 4px rgba(0,0,0,0.06)',
       }}
     >
-      {/* Track */}
       <span style={{
         display: 'inline-flex', alignItems: 'center',
         width: 34, height: 18, borderRadius: 50,
@@ -49,11 +48,9 @@ function ThemeToggle() {
         }} />
       </span>
       <span style={{
-        fontSize: '0.72rem',
-        fontWeight: 700,
+        fontSize: '0.72rem', fontWeight: 700,
         color: on ? '#E91E8C' : '#64748b',
-        whiteSpace: 'nowrap',
-        transition: 'color 0.22s',
+        whiteSpace: 'nowrap', transition: 'color 0.22s',
         fontFamily: 'Nunito, sans-serif',
       }}>
         {on ? '🌸 Kawaii' : '☁ Classic'}
@@ -80,13 +77,16 @@ export default function Navbar({ onNavigate, currentPage }: NavbarProps) {
   return (
     <nav style={{
       position: 'fixed', top: 0, left: 0, right: 0, zIndex: 1000,
-      background: theme.navBg,
-      backdropFilter: 'blur(16px)',
+      /* Solid opaque background — no blur, no haze */
+      background: theme.kawaii ? '#FFF0F5' : '#ffffff',
       borderBottom: `1.5px solid ${theme.navBorder}`,
       padding: '0 1.2rem', height: 60,
       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       gap: '0.5rem',
       transition: 'background 0.35s, border-color 0.35s',
+      boxShadow: theme.kawaii
+        ? '0 1px 0 #F48FB144'
+        : '0 1px 3px rgba(0,0,0,0.07)',
     }}>
       {/* Logo */}
       <div
@@ -99,7 +99,7 @@ export default function Navbar({ onNavigate, currentPage }: NavbarProps) {
         }}
       >
         {theme.kawaii ? '🌸' : '◈'}
-        <span>{theme.kawaii ? 'Blossom Board' : 'Blossom Board'}</span>
+        <span>Blossom Board</span>
       </div>
 
       {/* Nav links */}
