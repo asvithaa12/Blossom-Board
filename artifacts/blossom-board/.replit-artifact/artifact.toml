@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Blossom Board"
+version = "1.0.0"
+id = "artifacts/blossom-board"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 19169
+
+[services.development]
+run = "pnpm --filter @workspace/blossom-board run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/blossom-board", "run", "build" ]
+publicDir = "artifacts/blossom-board/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19169"
+BASE_PATH = "/"
