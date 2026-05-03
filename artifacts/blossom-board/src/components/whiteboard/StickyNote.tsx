@@ -100,7 +100,13 @@ export default function StickyNote({ element, viewport, isSelected }: Props) {
           {element.emoji || '📌'}
         </div>
         <button
-          onClick={(e) => { e.stopPropagation(); selectIds([element.id]); deleteSelected(); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            // Use getState() so selectIds + deleteSelected execute on the same tick
+            const s = useBoardStore.getState();
+            s.selectIds([element.id]);
+            s.deleteSelected();
+          }}
           style={{
             background: 'rgba(0,0,0,0.15)', border: 'none', borderRadius: '50%',
             width: 20, height: 20, cursor: 'pointer', fontSize: '0.65rem',

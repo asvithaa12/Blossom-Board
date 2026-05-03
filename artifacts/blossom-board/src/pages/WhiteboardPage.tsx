@@ -12,14 +12,21 @@ export default function WhiteboardPage({ onNavigate }: Props) {
   const elementsRef = useRef(elements);
   elementsRef.current = elements;
 
-  // Load from localStorage once on mount
+  // Load from localStorage once on mount — use setState directly to avoid duplicate keys
   useEffect(() => {
     try {
       const saved = localStorage.getItem('blossom-board-state');
       if (saved) {
         const els = JSON.parse(saved);
         if (Array.isArray(els) && els.length > 0) {
-          els.forEach((el: any) => useBoardStore.getState().addElement(el));
+          // Deduplicate by id before restoring
+          const seen = new Set<string>();
+          const unique = els.filter((el: any) => {
+            if (seen.has(el.id)) return false;
+            seen.add(el.id);
+            return true;
+          });
+          useBoardStore.setState({ elements: unique, history: [unique], historyIndex: 0 });
           showToast('Board restored from last session 🌸', '🌸');
         }
       }

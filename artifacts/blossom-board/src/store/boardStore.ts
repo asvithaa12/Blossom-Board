@@ -73,6 +73,21 @@ const MOCK_USERS = [
 
 let actIdCounter = 0;
 
+// On startup, wipe any duplicates from localStorage so we start clean
+try {
+  const raw = localStorage.getItem('blossom-board-state');
+  if (raw) {
+    const els = JSON.parse(raw) as { id: string }[];
+    if (Array.isArray(els)) {
+      const seen = new Set<string>();
+      const unique = els.filter(e => { if (seen.has(e.id)) return false; seen.add(e.id); return true; });
+      if (unique.length !== els.length) {
+        localStorage.setItem('blossom-board-state', JSON.stringify(unique));
+      }
+    }
+  }
+} catch {}
+
 export const useBoardStore = create<BoardState>((set, get) => ({
   elements: [],
   history: [[]],

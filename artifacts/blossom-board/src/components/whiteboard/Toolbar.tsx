@@ -104,6 +104,14 @@ export default function Toolbar({ onAddSticky, onExport, onShare }: Props) {
       overflowY: 'auto', overflowX: 'visible',
       flexShrink: 0, zIndex: 10, position: 'relative',
     }}>
+      {/* Undo / Redo at the very top */}
+      <span style={{ fontSize: '0.45rem', fontWeight: 700, color: '#AD6590' }}>HISTORY</span>
+      <div style={{ display: 'flex', gap: 2 }}>
+        <ActBtn icon="↩" label="Undo" onClick={undo} />
+        <ActBtn icon="↪" label="Redo" onClick={redo} />
+      </div>
+
+      <Sep />
       <span style={{ fontSize: '0.48rem', fontWeight: 900, color: '#E91E8C', letterSpacing: '0.1em', marginBottom: 2 }}>TOOLS</span>
 
       {TOOLS.map(t => (
