@@ -2,7 +2,7 @@ import { create } from 'zustand';
 
 export type Tool = 'select' | 'pen' | 'eraser' | 'rect' | 'ellipse' | 'line' | 'arrow' | 'text' | 'sticky' | 'pan';
 
-export interface Point { x: number; y: number; }
+export interface Point { x: number; y: number; pressure?: number; }
 
 export interface BoardElement {
   id: string;

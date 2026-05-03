@@ -13,13 +13,95 @@ interface InProg {
   points?: Point[];
 }
 
-export default function Canvas(_: { onExport: (c: HTMLCanvasElement) => void }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const wrapRef   = useRef<HTMLDivElement>(null);
+// ── Variable-width pressure stroke (filled trapezoids + round caps) ──────────
+function drawPressureStroke(
+  ctx: CanvasRenderingContext2D,
+  points: Point[],
+  color: string,
+  baseWidth: number,
+) {
+  if (points.length === 0) return;
+  ctx.fillStyle = color;
 
-  // Drawing-phase refs — no re-renders
+  if (points.length === 1) {
+    const r = Math.max((baseWidth * (points[0].pressure ?? 0.5)) / 2, 0.5);
+    ctx.beginPath();
+    ctx.arc(points[0].x, points[0].y, r, 0, Math.PI * 2);
+    ctx.fill();
+    return;
+  }
+
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[i];
+    const p1 = points[i + 1];
+    const r0 = Math.max((baseWidth * (p0.pressure ?? 0.5)) / 2, 0.5);
+    const r1 = Math.max((baseWidth * (p1.pressure ?? 0.5)) / 2, 0.5);
+    const dx = p1.x - p0.x;
+    const dy = p1.y - p0.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 0.1) continue;
+    const nx = -dy / len;
+    const ny = dx / len;
+
+    // Filled trapezoid segment
+    ctx.beginPath();
+    ctx.moveTo(p0.x + nx * r0, p0.y + ny * r0);
+    ctx.lineTo(p1.x + nx * r1, p1.y + ny * r1);
+    ctx.lineTo(p1.x - nx * r1, p1.y - ny * r1);
+    ctx.lineTo(p0.x - nx * r0, p0.y - ny * r0);
+    ctx.closePath();
+    ctx.fill();
+
+    // Round join at p0
+    ctx.beginPath();
+    ctx.arc(p0.x, p0.y, r0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Final round cap
+  const last = points[points.length - 1];
+  ctx.beginPath();
+  ctx.arc(last.x, last.y, Math.max((baseWidth * (last.pressure ?? 0.5)) / 2, 0.5), 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// ── Apply start/end taper for calligraphic feel ──────────────────────────────
+function applyTaper(points: Point[], taperLen = 10): Point[] {
+  if (points.length <= 2) return points;
+  const half = Math.min(taperLen, Math.floor(points.length / 2));
+  return points.map((p, i) => {
+    let pressure = p.pressure ?? 0.5;
+    if (i < half) pressure *= (i + 1) / half;
+    if (i >= points.length - half) pressure *= (points.length - i) / half;
+    return { ...p, pressure: Math.max(pressure, 0.05) };
+  });
+}
+
+// ── Legacy uniform-width bezier (for old strokes without pressure) ────────────
+function drawBezierStroke(ctx: CanvasRenderingContext2D, points: Point[], color: string, width: number) {
+  if (points.length < 2) return;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = width;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+  for (let i = 1; i < points.length - 1; i++) {
+    const mx = (points[i].x + points[i + 1].x) / 2;
+    const my = (points[i].y + points[i + 1].y) / 2;
+    ctx.quadraticCurveTo(points[i].x, points[i].y, mx, my);
+  }
+  ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+  ctx.stroke();
+}
+
+export default function Canvas(_: { onExport: (c: HTMLCanvasElement) => void }) {
+  const canvasRef     = useRef<HTMLCanvasElement>(null);
+  const liveCanvasRef = useRef<HTMLCanvasElement>(null);
+  const wrapRef       = useRef<HTMLDivElement>(null);
+
   const inProg  = useRef<InProg | null>(null);
-  const penPts  = useRef<Point[]>([]);
+  const rawPts  = useRef<Array<{ x: number; y: number; t: number }>>([]);
   const isDown  = useRef(false);
   const startW  = useRef({ x: 0, y: 0 });
   const panLast = useRef<{ x: number; y: number } | null>(null);
@@ -28,18 +110,18 @@ export default function Canvas(_: { onExport: (c: HTMLCanvasElement) => void }) 
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [size, setSize] = useState({ w: 800, h: 600 });
 
-  // Get latest store values — used fresh in every handler (no stale closures)
   const store = useBoardStore();
 
-  // ── Canvas attribute size synced to CSS via ResizeObserver ─────────────────
+  // ── Sync both canvas attribute sizes via ResizeObserver ──────────────────
   useLayoutEffect(() => {
-    const canvas = canvasRef.current!;
-    const wrap   = wrapRef.current!;
+    const canvas     = canvasRef.current!;
+    const liveCanvas = liveCanvasRef.current!;
+    const wrap       = wrapRef.current!;
     const sync = () => {
       const w = wrap.offsetWidth, h = wrap.offsetHeight;
       if (w > 0 && h > 0) {
-        canvas.width  = w;
-        canvas.height = h;
+        canvas.width = w; canvas.height = h;
+        liveCanvas.width = w; liveCanvas.height = h;
         setSize({ w, h });
       }
     };
@@ -49,40 +131,41 @@ export default function Canvas(_: { onExport: (c: HTMLCanvasElement) => void }) 
     return () => obs.disconnect();
   }, []);
 
-  // ── Draw one element ───────────────────────────────────────────────────────
-  const drawEl = (ctx: CanvasRenderingContext2D, el: InProg | BoardElement, dashed = false) => {
+  // ── Draw one committed element on base canvas ─────────────────────────────
+  const drawEl = (ctx: CanvasRenderingContext2D, el: BoardElement | InProg, dashed = false) => {
     ctx.save();
-    ctx.strokeStyle = el.strokeColor;
-    ctx.lineWidth   = el.strokeWidth;
-    ctx.lineCap     = 'round';
-    ctx.lineJoin    = 'round';
     if (dashed) ctx.setLineDash([6, 4]);
 
-    if (el.type === 'stroke' && el.points && el.points.length > 1) {
-      ctx.beginPath();
-      ctx.moveTo(el.points[0].x, el.points[0].y);
-      for (let i = 1; i < el.points.length - 1; i++) {
-        const mx = (el.points[i].x + el.points[i + 1].x) / 2;
-        const my = (el.points[i].y + el.points[i + 1].y) / 2;
-        ctx.quadraticCurveTo(el.points[i].x, el.points[i].y, mx, my);
+    if (el.type === 'stroke' && el.points && el.points.length > 0) {
+      ctx.setLineDash([]);
+      const hasPressure = el.points.some(p => p.pressure !== undefined);
+      if (hasPressure) {
+        drawPressureStroke(ctx, el.points, el.strokeColor, el.strokeWidth);
+      } else {
+        drawBezierStroke(ctx, el.points, el.strokeColor, el.strokeWidth);
       }
-      ctx.lineTo(el.points[el.points.length - 1].x, el.points[el.points.length - 1].y);
-      ctx.stroke();
     } else if (el.type === 'rect') {
+      ctx.strokeStyle = el.strokeColor; ctx.lineWidth = el.strokeWidth;
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
       ctx.beginPath(); ctx.roundRect(el.x, el.y, el.w, el.h, 4); ctx.stroke();
     } else if (el.type === 'ellipse') {
+      ctx.strokeStyle = el.strokeColor; ctx.lineWidth = el.strokeWidth;
       ctx.beginPath();
       ctx.ellipse(el.x + el.w / 2, el.y + el.h / 2, Math.abs(el.w / 2), Math.abs(el.h / 2), 0, 0, Math.PI * 2);
       ctx.stroke();
     } else if (el.type === 'line') {
+      ctx.strokeStyle = el.strokeColor; ctx.lineWidth = el.strokeWidth;
+      ctx.lineCap = 'round';
       ctx.beginPath(); ctx.moveTo(el.x, el.y); ctx.lineTo(el.x + el.w, el.y + el.h); ctx.stroke();
     } else if (el.type === 'arrow') {
+      ctx.strokeStyle = el.strokeColor; ctx.lineWidth = el.strokeWidth;
+      ctx.lineCap = 'round';
       const ex = el.x + el.w, ey = el.y + el.h;
       const ang = Math.atan2(el.h, el.w), hLen = Math.min(22, Math.hypot(el.w, el.h) * 0.3);
       ctx.beginPath(); ctx.moveTo(el.x, el.y); ctx.lineTo(ex, ey); ctx.stroke();
       ctx.beginPath();
-      ctx.moveTo(ex, ey); ctx.lineTo(ex - hLen * Math.cos(ang - Math.PI/6), ey - hLen * Math.sin(ang - Math.PI/6));
-      ctx.moveTo(ex, ey); ctx.lineTo(ex - hLen * Math.cos(ang + Math.PI/6), ey - hLen * Math.sin(ang + Math.PI/6));
+      ctx.moveTo(ex, ey); ctx.lineTo(ex - hLen * Math.cos(ang - Math.PI / 6), ey - hLen * Math.sin(ang - Math.PI / 6));
+      ctx.moveTo(ex, ey); ctx.lineTo(ex - hLen * Math.cos(ang + Math.PI / 6), ey - hLen * Math.sin(ang + Math.PI / 6));
       ctx.stroke();
     } else if (el.type === 'text') {
       const fs = (el as BoardElement).fontSize || 18;
@@ -93,14 +176,21 @@ export default function Canvas(_: { onExport: (c: HTMLCanvasElement) => void }) 
     ctx.restore();
   };
 
-  // ── Redraw everything ──────────────────────────────────────────────────────
+  // ── Redraw all committed elements on base canvas ──────────────────────────
   const redraw = () => {
-    const canvas = canvasRef.current;
+    const canvas     = canvasRef.current;
+    const liveCanvas = liveCanvasRef.current;
     if (!canvas || canvas.width === 0 || canvas.height === 0) return;
     const ctx = canvas.getContext('2d')!;
     const { elements, viewport, selectedIds } = store;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Clear live canvas when committed elements change (avoids double-draw ghost)
+    if (liveCanvas && !inProg.current) {
+      liveCanvas.getContext('2d')!.clearRect(0, 0, liveCanvas.width, liveCanvas.height);
+    }
+
     ctx.save();
     ctx.translate(viewport.x, viewport.y);
     ctx.scale(viewport.scale, viewport.scale);
@@ -116,39 +206,58 @@ export default function Canvas(_: { onExport: (c: HTMLCanvasElement) => void }) 
         ctx.lineWidth = 1.5 / viewport.scale;
         ctx.setLineDash([5, 4]);
         const pad = 8;
-        let bx = el.x-pad, by = el.y-pad, bw = el.w+pad*2, bh = el.h+pad*2;
+        let bx = el.x - pad, by = el.y - pad, bw = el.w + pad * 2, bh = el.h + pad * 2;
         if (el.type === 'stroke' && el.points?.length) {
           const xs = el.points.map(p => p.x), ys = el.points.map(p => p.y);
-          bx = Math.min(...xs)-pad; by = Math.min(...ys)-pad;
-          bw = Math.max(...xs)-Math.min(...xs)+pad*2; bh = Math.max(...ys)-Math.min(...ys)+pad*2;
+          bx = Math.min(...xs) - pad; by = Math.min(...ys) - pad;
+          bw = Math.max(...xs) - Math.min(...xs) + pad * 2;
+          bh = Math.max(...ys) - Math.min(...ys) + pad * 2;
         }
         if (el.type === 'line' || el.type === 'arrow') {
-          bx = Math.min(el.x,el.x+el.w)-pad; by = Math.min(el.y,el.y+el.h)-pad;
-          bw = Math.abs(el.w)+pad*2; bh = Math.abs(el.h)+pad*2;
+          bx = Math.min(el.x, el.x + el.w) - pad; by = Math.min(el.y, el.y + el.h) - pad;
+          bw = Math.abs(el.w) + pad * 2; bh = Math.abs(el.h) + pad * 2;
         }
         ctx.strokeRect(bx, by, bw, bh);
         ctx.setLineDash([]);
-        [[bx,by],[bx+bw/2,by],[bx+bw,by],[bx,by+bh/2],[bx+bw,by+bh/2],
-         [bx,by+bh],[bx+bw/2,by+bh],[bx+bw,by+bh]].forEach(([hx,hy]) => {
-          ctx.fillStyle='white'; ctx.fillRect(hx-5,hy-5,10,10);
-          ctx.strokeStyle='#E91E8C'; ctx.lineWidth=1.5/viewport.scale; ctx.strokeRect(hx-5,hy-5,10,10);
+        [[bx, by], [bx + bw / 2, by], [bx + bw, by], [bx, by + bh / 2], [bx + bw, by + bh / 2],
+          [bx, by + bh], [bx + bw / 2, by + bh], [bx + bw, by + bh]].forEach(([hx, hy]) => {
+          ctx.fillStyle = 'white'; ctx.fillRect(hx - 5, hy - 5, 10, 10);
+          ctx.strokeStyle = '#E91E8C'; ctx.lineWidth = 1.5 / viewport.scale; ctx.strokeRect(hx - 5, hy - 5, 10, 10);
         });
         ctx.restore();
       }
     }
-
-    if (inProg.current) drawEl(ctx, inProg.current, inProg.current.type !== 'stroke');
     ctx.restore();
   };
 
-  // Redraw whenever store state changes
+  // ── Draw only the in-progress element on the live canvas ─────────────────
+  const drawLive = () => {
+    const liveCanvas = liveCanvasRef.current;
+    if (!liveCanvas || !inProg.current) return;
+    const ctx = liveCanvas.getContext('2d')!;
+    const { viewport } = store;
+
+    ctx.clearRect(0, 0, liveCanvas.width, liveCanvas.height);
+    ctx.save();
+    ctx.translate(viewport.x, viewport.y);
+    ctx.scale(viewport.scale, viewport.scale);
+
+    const ip = inProg.current;
+    if (ip.type === 'stroke' && ip.points && ip.points.length > 0) {
+      drawPressureStroke(ctx, ip.points, ip.strokeColor, ip.strokeWidth);
+    } else {
+      drawEl(ctx, ip, ip.type !== 'stroke');
+    }
+    ctx.restore();
+  };
+
+  // Redraw committed elements when store state changes
   useEffect(() => { redraw(); });
 
-  // ── Coordinate helper — always self-heals canvas dimensions ──────────────
+  // ── Coordinate helper — self-heals canvas attribute size ─────────────────
   const toWorld = (e: { clientX: number; clientY: number }) => {
     const canvas = canvasRef.current!;
     const rect   = canvas.getBoundingClientRect();
-    // Force-sync canvas attribute size to CSS size so coordinates are always 1:1
     if (rect.width > 0 && rect.height > 0) {
       const rw = Math.round(rect.width), rh = Math.round(rect.height);
       if (canvas.width !== rw)  canvas.width  = rw;
@@ -160,7 +269,7 @@ export default function Canvas(_: { onExport: (c: HTMLCanvasElement) => void }) 
     return { x: (sx - vp.x) / vp.scale, y: (sy - vp.y) / vp.scale };
   };
 
-  // ── Hit test ─────────────────────────────────────────────────────────────
+  // ── Hit test ──────────────────────────────────────────────────────────────
   const hitEl = (wx: number, wy: number) => {
     const { elements, viewport } = store;
     const pad = 10 / viewport.scale;
@@ -168,22 +277,22 @@ export default function Canvas(_: { onExport: (c: HTMLCanvasElement) => void }) 
     for (const el of sorted) {
       if (el.type === 'sticky') continue;
       if (el.type === 'stroke' && el.points) {
-        if (el.points.some(p => Math.hypot(p.x-wx, p.y-wy) < 14/viewport.scale)) return el;
+        if (el.points.some(p => Math.hypot(p.x - wx, p.y - wy) < 14 / viewport.scale)) return el;
       } else if (el.type === 'line' || el.type === 'arrow') {
-        if (wx >= Math.min(el.x,el.x+el.w)-pad && wx <= Math.max(el.x,el.x+el.w)+pad &&
-            wy >= Math.min(el.y,el.y+el.h)-pad && wy <= Math.max(el.y,el.y+el.h)+pad) return el;
+        if (wx >= Math.min(el.x, el.x + el.w) - pad && wx <= Math.max(el.x, el.x + el.w) + pad &&
+          wy >= Math.min(el.y, el.y + el.h) - pad && wy <= Math.max(el.y, el.y + el.h) + pad) return el;
       } else {
-        if (wx >= el.x-pad && wx <= el.x+el.w+pad && wy >= el.y-pad && wy <= el.y+el.h+pad) return el;
+        if (wx >= el.x - pad && wx <= el.x + el.w + pad && wy >= el.y - pad && wy <= el.y + el.h + pad) return el;
       }
     }
     return null;
   };
 
-  // ── Mouse handlers — inline on <canvas>, always uses latest store ─────────
+  // ── Mouse down ────────────────────────────────────────────────────────────
   const handleDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (e.button === 2) return;
     setCtxMenu(null);
-    const { tool, color, strokeWidth, viewport, elements, selectIds, deleteSelected, updateElement, addElement, pushHistory } = store;
+    const { tool, color, strokeWidth, viewport, elements, selectIds, updateElement, addElement, pushHistory } = store;
     const { x: wx, y: wy } = toWorld(e);
 
     if (tool === 'pan' || spaceOn.current) {
@@ -193,7 +302,6 @@ export default function Canvas(_: { onExport: (c: HTMLCanvasElement) => void }) 
     if (tool === 'eraser') {
       const hit = hitEl(wx, wy);
       if (hit) {
-        // Use getState() to avoid batching issue
         useBoardStore.getState().selectIds([hit.id]);
         useBoardStore.getState().deleteSelected();
       }
@@ -223,16 +331,28 @@ export default function Canvas(_: { onExport: (c: HTMLCanvasElement) => void }) 
 
     isDown.current = true;
     startW.current = { x: wx, y: wy };
+
     if (tool === 'pen') {
-      penPts.current = [{ x: wx, y: wy }];
-      inProg.current = { id: uid(), type: 'stroke', x: wx, y: wy, w: 0, h: 0, strokeColor: color, strokeWidth, points: [{ x: wx, y: wy }] };
+      const now = performance.now();
+      // Start point has low pressure (taper builds naturally via applyTaper on commit)
+      const startPt: Point = { x: wx, y: wy, pressure: 0.3 };
+      rawPts.current = [{ x: wx, y: wy, t: now }];
+      inProg.current = {
+        id: uid(), type: 'stroke',
+        x: wx, y: wy, w: 0, h: 0,
+        strokeColor: color, strokeWidth,
+        points: [startPt],
+      };
+      drawLive();
     } else {
       const map: Record<string, BoardElement['type']> = { rect: 'rect', ellipse: 'ellipse', line: 'line', arrow: 'arrow' };
-      if (map[tool]) inProg.current = { id: uid(), type: map[tool], x: wx, y: wy, w: 0, h: 0, strokeColor: color, strokeWidth };
+      if (map[tool]) {
+        inProg.current = { id: uid(), type: map[tool], x: wx, y: wy, w: 0, h: 0, strokeColor: color, strokeWidth };
+      }
     }
-    redraw();
   };
 
+  // ── Mouse move ────────────────────────────────────────────────────────────
   const handleMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (panLast.current) {
       const dx = e.clientX - panLast.current.x, dy = e.clientY - panLast.current.y;
@@ -242,39 +362,84 @@ export default function Canvas(_: { onExport: (c: HTMLCanvasElement) => void }) 
     }
     if (!isDown.current || !inProg.current) return;
     const { x: wx, y: wy } = toWorld(e);
+
     if (inProg.current.type === 'stroke') {
-      penPts.current.push({ x: wx, y: wy });
-      inProg.current = { ...inProg.current, points: [...penPts.current] };
+      const now = performance.now();
+      const raw = rawPts.current;
+      const last = raw[raw.length - 1];
+
+      // Point decimation — skip micro-movements
+      const dist = Math.hypot(wx - last.x, wy - last.y);
+      if (dist < 1.2) return;
+
+      const dt    = Math.max(now - last.t, 1);
+      const speed = dist / dt; // px per ms
+
+      // Speed → pressure  (slow drawing = thick, fast = thin)
+      const SPEED_MAX   = 1.8;
+      const rawPressure = Math.max(0.15, 1 - Math.min(speed / SPEED_MAX, 1) * 0.78);
+
+      // Smooth with exponential weighted average on previous point
+      const prevPts     = inProg.current.points || [];
+      const prevPressure = prevPts.length > 0 ? (prevPts[prevPts.length - 1].pressure ?? 0.5) : 0.5;
+      const smoothed    = prevPressure * 0.55 + rawPressure * 0.45;
+
+      raw.push({ x: wx, y: wy, t: now });
+      const newPt: Point = { x: wx, y: wy, pressure: smoothed };
+      inProg.current = {
+        ...inProg.current,
+        points: [...prevPts, newPt],
+      };
+      drawLive();
     } else {
-      const dw = e.shiftKey ? Math.sign(wx - startW.current.x) * Math.min(Math.abs(wx - startW.current.x), Math.abs(wy - startW.current.y)) : wx - startW.current.x;
-      const dh = e.shiftKey ? Math.sign(wy - startW.current.y) * Math.min(Math.abs(wx - startW.current.x), Math.abs(wy - startW.current.y)) : wy - startW.current.y;
+      // Shapes
+      const dw = e.shiftKey
+        ? Math.sign(wx - startW.current.x) * Math.min(Math.abs(wx - startW.current.x), Math.abs(wy - startW.current.y))
+        : wx - startW.current.x;
+      const dh = e.shiftKey
+        ? Math.sign(wy - startW.current.y) * Math.min(Math.abs(wx - startW.current.x), Math.abs(wy - startW.current.y))
+        : wy - startW.current.y;
       inProg.current = { ...inProg.current, w: dw, h: dh };
+      drawLive();
     }
-    redraw();
   };
 
+  // ── Mouse up ──────────────────────────────────────────────────────────────
   const handleUp = () => {
     panLast.current = null;
     if (!isDown.current) return;
     isDown.current = false;
+
     const ip = inProg.current;
     inProg.current = null;
+
+    // Clear live canvas immediately — redraw() will paint the committed element
+    const liveCanvas = liveCanvasRef.current;
+    if (liveCanvas) liveCanvas.getContext('2d')!.clearRect(0, 0, liveCanvas.width, liveCanvas.height);
+
     if (ip) {
       const { addElement, elements } = store;
       if (ip.type === 'stroke') {
-        if (penPts.current.length > 1) addElement({ ...ip, fillColor: 'transparent', rotation: 0, zIndex: elements.length, points: [...penPts.current] } as BoardElement);
+        let pts = ip.points || [];
+        if (pts.length > 1) {
+          pts = applyTaper(pts); // calligraphic start/end taper
+          addElement({ ...ip, fillColor: 'transparent', rotation: 0, zIndex: elements.length, points: pts } as BoardElement);
+        } else if (pts.length === 1) {
+          // Single dot
+          addElement({ ...ip, fillColor: 'transparent', rotation: 0, zIndex: elements.length, points: pts } as BoardElement);
+        }
+        rawPts.current = [];
       } else if (Math.abs(ip.w) > 3 || Math.abs(ip.h) > 3) {
         addElement({ ...ip, fillColor: 'transparent', rotation: 0, zIndex: elements.length } as BoardElement);
       }
-      penPts.current = [];
     }
-    redraw();
   };
 
+  // ── Wheel zoom / pan ──────────────────────────────────────────────────────
   const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
     e.preventDefault();
     const canvas = canvasRef.current!;
-    const rect = canvas.getBoundingClientRect();
+    const rect   = canvas.getBoundingClientRect();
     const sx = (e.clientX - rect.left) * (canvas.width  / Math.max(rect.width,  1));
     const sy = (e.clientY - rect.top)  * (canvas.height / Math.max(rect.height, 1));
     const vp = store.viewport;
@@ -288,42 +453,55 @@ export default function Canvas(_: { onExport: (c: HTMLCanvasElement) => void }) 
     }
   };
 
-  // Space key for pan
+  // Space key → pan mode
   useEffect(() => {
     const kd = (e: KeyboardEvent) => { if (e.code === 'Space' && e.target === document.body) { e.preventDefault(); spaceOn.current = true; } };
     const ku = (e: KeyboardEvent) => { if (e.code === 'Space') spaceOn.current = false; };
     window.addEventListener('keydown', kd);
-    window.addEventListener('keyup',   ku);
+    window.addEventListener('keyup', ku);
     return () => { window.removeEventListener('keydown', kd); window.removeEventListener('keyup', ku); };
   }, []);
 
   const { elements, viewport, selectedIds } = store;
-  const cursor = store.tool === 'pan' ? 'grab' : store.tool === 'pen' ? 'crosshair' : store.tool === 'eraser' ? 'cell' : 'default';
+  const cursor = store.tool === 'pan' || spaceOn.current
+    ? 'grab'
+    : store.tool === 'pen'
+    ? 'crosshair'
+    : store.tool === 'eraser'
+    ? 'cell'
+    : 'default';
 
   return (
     <div
       ref={wrapRef}
-      style={{ position: 'absolute', inset: 0, background: '#FFF5F9',
+      style={{
+        position: 'absolute', inset: 0, background: '#FFF5F9',
         backgroundImage: 'radial-gradient(circle, #F8BBD9 1.5px, transparent 1.5px)',
-        backgroundSize: '24px 24px' }}
+        backgroundSize: '24px 24px',
+      }}
     >
-      {/* Ruler — visual only, no pointer events */}
-      <div style={{ position:'absolute',top:0,left:0,right:0,height:20,zIndex:4,
-        background:'linear-gradient(180deg,#FFE0EE,#FFDDE9)',
-        borderBottom:'1px solid #F48FB155',
-        display:'flex',alignItems:'flex-end',pointerEvents:'none',userSelect:'none' }}>
-        {Array.from({length:40},(_,i) => (
-          <div key={i} style={{ flex:1,borderLeft:'1px solid #F48FB133',
-            height:i%5===0?'55%':'22%',display:'flex',alignItems:'flex-end',paddingLeft:1 }}>
-            {i%10===0&&i>0&&<span style={{fontSize:'0.4rem',color:'#AD6590',fontWeight:700}}>{i*10}</span>}
+      {/* Ruler */}
+      <div style={{
+        position: 'absolute', top: 0, left: 0, right: 0, height: 20, zIndex: 4,
+        background: 'linear-gradient(180deg,#FFE0EE,#FFDDE9)',
+        borderBottom: '1px solid #F48FB155',
+        display: 'flex', alignItems: 'flex-end', pointerEvents: 'none', userSelect: 'none',
+      }}>
+        {Array.from({ length: 40 }, (_, i) => (
+          <div key={i} style={{
+            flex: 1, borderLeft: '1px solid #F48FB133',
+            height: i % 5 === 0 ? '55%' : '22%',
+            display: 'flex', alignItems: 'flex-end', paddingLeft: 1,
+          }}>
+            {i % 10 === 0 && i > 0 && <span style={{ fontSize: '0.4rem', color: '#AD6590', fontWeight: 700 }}>{i * 10}</span>}
           </div>
         ))}
       </div>
 
-      {/* The canvas — React mouse handlers are always fresh, no stale closures */}
+      {/* Base canvas — committed elements */}
       <canvas
         ref={canvasRef}
-        style={{ position:'absolute',top:0,left:0,width:'100%',height:'100%',cursor,display:'block',touchAction:'none' }}
+        style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', cursor, display: 'block', touchAction: 'none' }}
         onMouseDown={handleDown}
         onMouseMove={handleMove}
         onMouseUp={handleUp}
@@ -332,43 +510,51 @@ export default function Canvas(_: { onExport: (c: HTMLCanvasElement) => void }) 
         onContextMenu={e => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
       />
 
-      {/* Sticky notes — top:0 matches canvas coordinate origin */}
-      <div style={{ position:'absolute',top:0,left:0,right:0,bottom:0,pointerEvents:'none',zIndex:10 }}>
+      {/* Live canvas — in-progress stroke / shape preview (pointer-events:none) */}
+      <canvas
+        ref={liveCanvasRef}
+        style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', display: 'block' }}
+      />
+
+      {/* Sticky notes */}
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none', zIndex: 10 }}>
         {elements.filter(e => e.type === 'sticky').map(el => (
-          <div key={el.id} style={{ pointerEvents:'all' }}>
+          <div key={el.id} style={{ pointerEvents: 'all' }}>
             <StickyNote element={el} viewport={viewport} isSelected={selectedIds.includes(el.id)} />
           </div>
         ))}
       </div>
 
       {/* Ghost cursors */}
-      <div style={{ position:'absolute',top:0,left:0,right:0,bottom:0,pointerEvents:'none',zIndex:15 }}>
+      <div className="ghost-cursors-layer" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none', zIndex: 15 }}>
         <GhostCursors containerWidth={size.w} containerHeight={size.h} />
       </div>
 
-      {/* Glitter */}
+      {/* Glitter trail */}
       <CursorGlitter containerRef={wrapRef as React.RefObject<HTMLElement>} />
 
       {/* Zoom HUD */}
-      <div style={{ position:'absolute',bottom:'1rem',left:'50%',transform:'translateX(-50%)',
-        background:'white',borderRadius:50,border:'1.5px solid #FCE4EC',
-        padding:'0.4rem 0.9rem',display:'flex',alignItems:'center',gap:'0.7rem',
-        boxShadow:'0 4px 24px rgba(233,30,140,0.12)',zIndex:20,fontFamily:'Nunito,sans-serif' }}>
-        <button onClick={() => store.setViewport({ scale: Math.max(0.08, viewport.scale-0.1) })}
-          style={{ width:26,height:26,borderRadius:'50%',border:'1.5px solid #F48FB1',background:'white',cursor:'pointer',color:'#E91E8C',fontWeight:900,fontSize:'1rem',lineHeight:1,display:'flex',alignItems:'center',justifyContent:'center' }}>−</button>
-        <span style={{ fontSize:'0.78rem',fontWeight:800,color:'#7B3F6E',minWidth:40,textAlign:'center' }}>{Math.round(viewport.scale*100)}%</span>
-        <button onClick={() => store.setViewport({ scale: Math.min(5, viewport.scale+0.1) })}
-          style={{ width:26,height:26,borderRadius:'50%',border:'1.5px solid #F48FB1',background:'white',cursor:'pointer',color:'#E91E8C',fontWeight:900,fontSize:'1rem',lineHeight:1,display:'flex',alignItems:'center',justifyContent:'center' }}>+</button>
-        <div style={{ width:1,height:16,background:'#FCE4EC' }} />
-        <button onClick={() => store.setViewport({ x:0,y:0,scale:1 })} title="Fit [F]"
-          style={{ width:26,height:26,borderRadius:'50%',border:'1.5px solid #F48FB1',background:'white',cursor:'pointer',color:'#E91E8C',fontSize:'0.8rem',display:'flex',alignItems:'center',justifyContent:'center' }}>⊡</button>
-        <div style={{ width:1,height:16,background:'#FCE4EC' }} />
-        <span style={{ fontSize:'0.7rem',fontWeight:700,color:'#AD6590' }}>{elements.length} obj</span>
+      <div style={{
+        position: 'absolute', bottom: '1rem', left: '50%', transform: 'translateX(-50%)',
+        background: 'white', borderRadius: 50, border: '1.5px solid #FCE4EC',
+        padding: '0.4rem 0.9rem', display: 'flex', alignItems: 'center', gap: '0.7rem',
+        boxShadow: '0 4px 24px rgba(233,30,140,0.12)', zIndex: 20, fontFamily: 'Nunito,sans-serif',
+      }}>
+        <button onClick={() => store.setViewport({ scale: Math.max(0.08, viewport.scale - 0.1) })}
+          style={{ width: 26, height: 26, borderRadius: '50%', border: '1.5px solid #F48FB1', background: 'white', cursor: 'pointer', color: '#E91E8C', fontWeight: 900, fontSize: '1rem', lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
+        <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#7B3F6E', minWidth: 40, textAlign: 'center' }}>{Math.round(viewport.scale * 100)}%</span>
+        <button onClick={() => store.setViewport({ scale: Math.min(5, viewport.scale + 0.1) })}
+          style={{ width: 26, height: 26, borderRadius: '50%', border: '1.5px solid #F48FB1', background: 'white', cursor: 'pointer', color: '#E91E8C', fontWeight: 900, fontSize: '1rem', lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
+        <div style={{ width: 1, height: 16, background: '#FCE4EC' }} />
+        <button onClick={() => store.setViewport({ x: 0, y: 0, scale: 1 })} title="Fit [F]"
+          style={{ width: 26, height: 26, borderRadius: '50%', border: '1.5px solid #F48FB1', background: 'white', cursor: 'pointer', color: '#E91E8C', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>⊡</button>
+        <div style={{ width: 1, height: 16, background: '#FCE4EC' }} />
+        <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#AD6590' }}>{elements.length} obj</span>
       </div>
 
       {/* Context menu */}
       {ctxMenu && (
-        <div className="context-menu" style={{ position:'fixed',left:ctxMenu.x,top:ctxMenu.y,zIndex:300 }} onClick={() => setCtxMenu(null)}>
+        <div className="context-menu" style={{ position: 'fixed', left: ctxMenu.x, top: ctxMenu.y, zIndex: 300 }} onClick={() => setCtxMenu(null)}>
           {selectedIds.length > 0 ? (
             <>
               <div className="context-item" onClick={() => { store.duplicateSelected(); setCtxMenu(null); }}>📋 Duplicate</div>
@@ -380,7 +566,7 @@ export default function Canvas(_: { onExport: (c: HTMLCanvasElement) => void }) 
               <div className="context-item danger" onClick={() => { store.deleteSelected(); setCtxMenu(null); }}>🗑️ Delete</div>
             </>
           ) : (
-            <div className="context-item" style={{ color:'#AD6590',cursor:'default',fontSize:'0.78rem' }}>Right-click a shape to edit</div>
+            <div className="context-item" style={{ color: '#AD6590', cursor: 'default', fontSize: '0.78rem' }}>Right-click a shape to edit</div>
           )}
         </div>
       )}
