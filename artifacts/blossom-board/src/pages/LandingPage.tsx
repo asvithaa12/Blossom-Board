@@ -3,12 +3,26 @@ import { motion, useInView } from 'framer-motion';
 
 interface LandingPageProps { onNavigate: (page: string) => void; }
 
+function BlossomGhost() {
+  return (
+    <svg width="38" height="44" viewBox="0 0 32 38" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M4 16C4 9 9.37 4 16 4C22.63 4 28 9 28 16V34C28 34 25 31.5 22 34C19 36.5 16 34 16 34C16 34 13 36.5 10 34C7 31.5 4 34 4 34V16Z"
+        fill="#E91E8C" opacity="0.9" />
+      <ellipse cx="12" cy="18" rx="2.5" ry="3" fill="white" />
+      <ellipse cx="20" cy="18" rx="2.5" ry="3" fill="white" />
+      <ellipse cx="12.8" cy="18.8" rx="1.2" ry="1.4" fill="#3D1A2E" />
+      <ellipse cx="20.8" cy="18.8" rx="1.2" ry="1.4" fill="#3D1A2E" />
+      <path d="M13 23 Q16 25 19 23" stroke="white" strokeWidth="1.2" strokeLinecap="round" fill="none" opacity="0.8" />
+    </svg>
+  );
+}
+
 const FEATURES = [
   { icon: '✏️', title: 'Freehand Drawing', desc: 'Smooth bezier-curved strokes with variable width, colour picker, and pressure simulation. Like drawing on real paper.', page: 'board' },
   { icon: '📌', title: 'Cute Sticky Notes', desc: 'Pop in pastel notes with emoji, auto-resize text, spring animations, and a folded-corner style. 6 adorable colours.', page: 'board' },
   { icon: '🔷', title: 'Shapes & Connectors', desc: 'Rectangle, ellipse, line, and arrow tools. Shift-lock to perfect squares and circles. Layer and group elements freely.', page: 'board' },
   { icon: '🔍', title: 'Zoom & Pan', desc: 'Mouse wheel zoom from 10% to 400%. Space-drag to pan. Fit-to-screen in one click. Canvas is infinite.', page: 'board' },
-  { icon: '🌸', title: 'Meet Blossom — Your AI Guide', desc: 'Blossom is your built-in AI chatbot. Ask her anything about the whiteboard — tools, shortcuts, tips — and she\'ll guide you step by step.', page: 'board' },
+  { icon: '', customIcon: true, title: 'Meet Blossom — Your AI Guide', desc: 'Blossom is your built-in AI chatbot. Ask her anything about the whiteboard — tools, shortcuts, tips — and she\'ll guide you step by step.', page: 'board' },
   { icon: '📅', title: 'Notion-style Task Board', desc: 'Kanban, Calendar, and List views. Drag-and-drop cards. Priority badges, due dates, assignees, and filters.', page: 'tasks' },
   { icon: '↩️', title: 'Undo / Redo', desc: 'Full 50-step history stack. Ctrl+Z your mistakes away. Every action is tracked with a friendly toast notification.', page: 'board' },
   { icon: '🖼️', title: 'Export & Share', desc: 'Screenshot your board and share it with friends in one click. Pure client-side, no upload needed.', page: 'board' },
@@ -171,7 +185,9 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
               }}
               whileHover={{ y: -4, boxShadow: '0 8px 32px rgba(233,30,140,0.2)', borderColor: '#F48FB1' }}>
               <div style={{ position: 'absolute', top: -30, right: -30, width: 100, height: 100, borderRadius: '50%', background: '#FCE4EC', opacity: 0.5 }} />
-              <span style={{ fontSize: '2.2rem', marginBottom: '1rem', display: 'block' }}>{f.icon}</span>
+              <span style={{ fontSize: '2.2rem', marginBottom: '1rem', display: 'block' }}>
+                {(f as any).customIcon ? <BlossomGhost /> : f.icon}
+              </span>
               <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#3D1A2E', marginBottom: '0.4rem' }}>{f.title}</div>
               <div style={{ fontSize: '0.88rem', color: '#7B3F6E', lineHeight: 1.6 }}>{f.desc}</div>
             </motion.div>
