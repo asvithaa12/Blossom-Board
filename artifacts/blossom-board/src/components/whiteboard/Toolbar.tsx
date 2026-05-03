@@ -16,7 +16,7 @@ const TOOLS: ToolDef[] = [
 ];
 const SHAPE_TOOLS: ToolDef[] = [
   { id: 'rect', label: 'Rect', icon: '▭', key: 'R' },
-  { id: 'ellipse', label: 'Ellipse', icon: '◯', key: 'O' },
+  { id: 'ellipse', label: 'Circle', icon: '◯', key: 'O' },
   { id: 'line', label: 'Line', icon: '╱', key: 'L' },
   { id: 'arrow', label: 'Arrow', icon: '→', key: 'A' },
 ];
@@ -32,6 +32,68 @@ interface Props {
   onShare: () => void;
 }
 
+function ToolBtn({ t, isActive, onClick }: { t: ToolDef; isActive: boolean; onClick: () => void }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+      <button
+        onClick={onClick}
+        title={`${t.label} (${t.key})`}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        style={{
+          width: 42, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: t.icon === 'T' ? '0.95rem' : '1.05rem',
+          fontWeight: t.icon === 'T' ? 800 : undefined,
+          transition: 'all 0.18s',
+          background: isActive ? '#E91E8C' : hovered ? '#FCE4EC' : 'transparent',
+          color: isActive ? 'white' : hovered ? '#E91E8C' : '#7B3F6E',
+          boxShadow: isActive ? '0 2px 10px rgba(233,30,140,0.35)' : undefined,
+          transform: isActive ? 'scale(1.08)' : 'scale(1)',
+        }}
+      >
+        {t.icon}
+      </button>
+      <div style={{
+        fontSize: '0.48rem', fontWeight: 800, lineHeight: 1.1, textAlign: 'center',
+        color: isActive ? '#E91E8C' : '#AD6590',
+        letterSpacing: '0.01em',
+        minHeight: '0.6rem',
+      }}>
+        {t.label}
+      </div>
+    </div>
+  );
+}
+
+function ActionBtn({ icon, label, onClick }: { icon: string; label: string; onClick: () => void }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+      <button
+        onClick={onClick}
+        title={label}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        style={{
+          width: 42, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: '1rem',
+          transition: 'all 0.18s',
+          background: hovered ? '#FCE4EC' : 'transparent',
+          color: hovered ? '#E91E8C' : '#7B3F6E',
+        }}
+      >
+        {icon}
+      </button>
+      <div style={{ fontSize: '0.48rem', fontWeight: 800, lineHeight: 1.1, textAlign: 'center', color: '#AD6590', minHeight: '0.6rem' }}>{label}</div>
+    </div>
+  );
+}
+
+const sep = () => <div style={{ width: 34, height: 1, background: '#FCE4EC', margin: '2px 0' }} />;
+
 export default function Toolbar({ onAddSticky, onExport, onShare }: Props) {
   const { tool, color, strokeWidth, setTool, setColor, setStrokeWidth, undo, redo, clearBoard } = useBoardStore();
   const [showColorPicker, setShowColorPicker] = useState(false);
@@ -42,137 +104,81 @@ export default function Toolbar({ onAddSticky, onExport, onShare }: Props) {
     setTool(id as Tool);
   };
 
-  const renderBtn = (t: ToolDef) => {
-    const isActive = t.id !== 'addSticky' && tool === t.id;
-    return (
-      <div key={t.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-        <button
-          onClick={() => handleTool(t.id)}
-          title={`${t.label} (${t.key})`}
-          style={{
-            width: 44, height: 44, borderRadius: 14, border: 'none', cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: t.icon === 'T' ? '1rem' : '1.2rem',
-            fontWeight: t.icon === 'T' ? 800 : undefined,
-            transition: 'all 0.2s',
-            background: isActive ? '#E91E8C' : 'transparent',
-            color: isActive ? 'white' : '#7B3F6E',
-            boxShadow: isActive ? '0 2px 12px rgba(233,30,140,0.3)' : undefined,
-          }}
-          onMouseEnter={e => { if (!isActive) { (e.currentTarget as HTMLElement).style.background = '#FCE4EC'; (e.currentTarget as HTMLElement).style.color = '#E91E8C'; } }}
-          onMouseLeave={e => { if (!isActive) { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = '#7B3F6E'; } }}
-        >
-          {t.icon}
-        </button>
-        <div style={{ fontSize: '0.52rem', fontWeight: 700, color: '#AD6590', marginTop: -3, textAlign: 'center', lineHeight: 1 }}>{t.label}</div>
-      </div>
-    );
-  };
-
-  const sep = () => <div style={{ width: 32, height: 1, background: '#FCE4EC', margin: '0.2rem 0' }} />;
-
   return (
     <div style={{
-      width: 68, background: 'white', borderRight: '1.5px solid #FCE4EC',
+      width: 64, background: 'white', borderRight: '1.5px solid #FCE4EC',
       display: 'flex', flexDirection: 'column', alignItems: 'center',
-      padding: '0.6rem 0', gap: '0.2rem', overflowY: 'auto',
+      padding: '6px 0', gap: '2px', overflowY: 'auto', overflowX: 'visible',
       flexShrink: 0, zIndex: 10, position: 'relative',
     }}>
-      <div style={{ fontSize: '0.55rem', fontWeight: 800, color: '#E91E8C', marginBottom: '0.2rem', textAlign: 'center' }}>TOOLS</div>
+      <div style={{ fontSize: '0.5rem', fontWeight: 800, color: '#E91E8C', letterSpacing: '0.08em', marginBottom: 2 }}>TOOLS</div>
 
-      {TOOLS.map(renderBtn)}
+      {TOOLS.map(t => (
+        <ToolBtn key={t.id} t={t} isActive={t.id !== 'addSticky' && tool === t.id} onClick={() => handleTool(t.id)} />
+      ))}
       {sep()}
-      {SHAPE_TOOLS.map(renderBtn)}
+      {SHAPE_TOOLS.map(t => (
+        <ToolBtn key={t.id} t={t} isActive={tool === t.id} onClick={() => handleTool(t.id)} />
+      ))}
       {sep()}
-      {EXTRA_TOOLS.map(renderBtn)}
+      {EXTRA_TOOLS.map(t => (
+        <ToolBtn key={t.id} t={t} isActive={t.id !== 'addSticky' && tool === t.id} onClick={() => handleTool(t.id)} />
+      ))}
       {sep()}
 
-      {/* Color */}
-      <div style={{ fontSize: '0.52rem', fontWeight: 700, color: '#AD6590', marginTop: '0.3rem' }}>COLOR</div>
+      {/* Color swatch */}
+      <div style={{ fontSize: '0.48rem', fontWeight: 800, color: '#AD6590', letterSpacing: '0.06em' }}>COLOR</div>
       <div
         onClick={() => setShowColorPicker(!showColorPicker)}
         style={{
-          width: 30, height: 30, borderRadius: '50%',
+          width: 28, height: 28, borderRadius: '50%',
           background: color, cursor: 'pointer',
           border: '2.5px solid #F48FB1',
           boxShadow: '0 2px 8px rgba(233,30,140,0.2)',
-          transition: 'transform 0.2s',
+          transition: 'transform 0.15s',
+          margin: '2px 0',
         }}
-        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = 'scale(1.15)'; }}
+        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = 'scale(1.18)'; }}
         onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; }}
       />
 
       {/* Stroke */}
-      <div style={{ fontSize: '0.52rem', fontWeight: 700, color: '#AD6590', marginTop: '0.2rem' }}>STROKE</div>
+      <div style={{ fontSize: '0.48rem', fontWeight: 800, color: '#AD6590', letterSpacing: '0.06em' }}>STROKE</div>
       <input
         type="range" min={1} max={20} value={strokeWidth}
         onChange={e => setStrokeWidth(Number(e.target.value))}
         className="stroke-slider"
-        style={{ width: 48, margin: '0.2rem 0' }}
+        style={{ width: 46, margin: '2px 0 4px' }}
       />
       {sep()}
 
-      {/* Undo/Redo */}
-      {[
-        { icon: '↩', label: 'Undo', action: undo, tip: 'Ctrl+Z' },
-        { icon: '↪', label: 'Redo', action: redo, tip: 'Ctrl+Y' },
-      ].map(b => (
-        <div key={b.label} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          <button onClick={b.action} title={`${b.label} (${b.tip})`} style={{
-            width: 44, height: 44, borderRadius: 14, border: 'none', cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: '1.2rem', background: 'transparent', color: '#7B3F6E', transition: 'all 0.2s',
-          }}
-            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#FCE4EC'; (e.currentTarget as HTMLElement).style.color = '#E91E8C'; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = '#7B3F6E'; }}>
-            {b.icon}
-          </button>
-          <div style={{ fontSize: '0.52rem', fontWeight: 700, color: '#AD6590', marginTop: -3, textAlign: 'center' }}>{b.label}</div>
-        </div>
-      ))}
-
+      <ActionBtn icon="↩" label="Undo" onClick={undo} />
+      <ActionBtn icon="↪" label="Redo" onClick={redo} />
       {sep()}
-
-      {/* Export/Share/Clear */}
-      {[
-        { icon: '💾', label: 'Export', action: onExport, tip: 'Ctrl+Shift+E' },
-        { icon: '📤', label: 'Share', action: onShare, tip: '' },
-        { icon: '🗑️', label: 'Clear', action: clearBoard, tip: '' },
-      ].map(b => (
-        <div key={b.label} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          <button onClick={b.action} title={b.label} style={{
-            width: 44, height: 44, borderRadius: 14, border: 'none', cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: '1.1rem', background: 'transparent', color: '#7B3F6E', transition: 'all 0.2s',
-          }}
-            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#FCE4EC'; (e.currentTarget as HTMLElement).style.color = '#E91E8C'; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = '#7B3F6E'; }}>
-            {b.icon}
-          </button>
-          <div style={{ fontSize: '0.52rem', fontWeight: 700, color: '#AD6590', marginTop: -3, textAlign: 'center' }}>{b.label}</div>
-        </div>
-      ))}
+      <ActionBtn icon="💾" label="Export" onClick={onExport} />
+      <ActionBtn icon="📤" label="Share" onClick={onShare} />
+      <ActionBtn icon="🗑️" label="Clear" onClick={clearBoard} />
 
       {/* Color Picker Popup */}
       {showColorPicker && (
         <div style={{
-          position: 'absolute', left: 74, top: 120,
+          position: 'absolute', left: 70, top: 100,
           background: 'white', border: '1.5px solid #FCE4EC',
           borderRadius: 16, padding: '1rem',
-          boxShadow: '0 4px 24px rgba(233,30,140,0.15)',
-          zIndex: 100, width: 180,
+          boxShadow: '0 4px 24px rgba(233,30,140,0.18)',
+          zIndex: 200, width: 176,
         }}>
-          <div style={{ fontSize: '0.7rem', fontWeight: 800, color: '#AD6590', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Colour</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.4rem', marginBottom: '0.7rem' }}>
+          <div style={{ fontSize: '0.7rem', fontWeight: 800, color: '#AD6590', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Choose Colour</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.35rem', marginBottom: '0.7rem' }}>
             {COLORS.map(c => (
               <div key={c} onClick={() => { setColor(c); setHexInput(c); setShowColorPicker(false); }}
                 style={{
                   width: 32, height: 32, borderRadius: 8, cursor: 'pointer',
-                  background: c, border: c === color ? '2.5px solid #3D1A2E' : '2px solid transparent',
-                  transition: 'all 0.15s',
-                  boxShadow: c === '#ffffff' ? '0 0 0 1px #FCE4EC' : undefined,
+                  background: c,
+                  border: c === color ? '2.5px solid #3D1A2E' : c === '#ffffff' ? '1.5px solid #FCE4EC' : '2px solid transparent',
+                  transition: 'transform 0.12s',
                 }}
-                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = 'scale(1.15)'; }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = 'scale(1.18)'; }}
                 onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; }}
               />
             ))}
