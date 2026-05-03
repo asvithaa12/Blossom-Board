@@ -136,7 +136,7 @@ const FEATURES = [
   { icon: '📅', title: 'Notion-style Task Board', desc: 'Kanban, Calendar, and List views. Drag-and-drop cards. Priority badges, due dates, assignees, and filters.', page: 'tasks' },
   { icon: '↩️', title: 'Undo / Redo', desc: 'Full 50-step history stack. Ctrl+Z your mistakes away. Every action is tracked with a friendly toast notification.', page: 'board' },
   { icon: '🖼️', title: 'Export & Share', desc: 'Screenshot your board and share it with friends in one click. Pure client-side, no upload needed.', page: 'board' },
-  { icon: '💾', title: 'Auto-Save', desc: 'Your board saves to localStorage every 10 seconds. Come back tomorrow — your work will still be there.', page: 'board' },
+  { icon: '💾', title: 'Auto-Save', desc: 'Your board saves automatically whenever you leave the page. Come back anytime — everything will be exactly as you left it.', page: 'board' },
 ];
 
 
